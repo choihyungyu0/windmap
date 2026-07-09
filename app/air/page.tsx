@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { Navbar } from "@/components/site/navbar";
 import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal } from "@/components/site/reveal";
 import { BreadcrumbJsonLd } from "@/components/site/breadcrumb-jsonld";
-import { cn } from "@/lib/utils";
+import { AirMap } from "@/components/air/air-map";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/air" },
@@ -12,25 +13,6 @@ export const metadata: Metadata = {
   description:
     "측정소가 없는 마을의 대기질을 위성 관측(AOD)·기상·토지이용 데이터로 추정합니다. 공간 사각지대를 메우는 위성 기반 추정.",
 };
-
-/* 데모 격자 — 결정적 의사값 (F-GAP-01 위성 추정 모델(P7)로 교체 예정) */
-const SIZE = 10;
-function pmAt(row: number, col: number): number {
-  const v =
-    24 +
-    12 * Math.sin(col * 0.8 + 1.2) +
-    9 * Math.cos(row * 0.9 - 0.5) +
-    6 * Math.sin((row + col) * 0.45);
-  return Math.max(6, Math.round(v));
-}
-/** 한국형 PM2.5 등급 (μg/m³): 좋음 0–15 · 보통 16–35 · 나쁨 36–75 · 매우나쁨 76+ */
-function pmClass(v: number): { label: string; cls: string } {
-  if (v <= 15) return { label: "좋음", cls: "bg-sky-500/80" };
-  if (v <= 35) return { label: "보통", cls: "bg-emerald-500/80" };
-  if (v <= 75) return { label: "나쁨", cls: "bg-alert-warn/85" };
-  return { label: "매우나쁨", cls: "bg-alert-severe/85" };
-}
-const STATIONS = new Set(["2-3", "7-7"]); // 측정소가 있는 격자 (실측 앵커)
 
 export default function AirPage() {
   return (
@@ -46,61 +28,14 @@ export default function AirPage() {
           />
 
           <div className="mt-14 grid gap-10 lg:grid-cols-[1fr_360px]">
-            {/* 추정 격자 */}
+            {/* 위성 추정 대기질 지도 (HeatmapLayer) */}
             <Reveal>
               <div>
-                <div
-                  className="grid gap-1 rounded-xl border border-border bg-muted/40 p-3"
-                  style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))` }}
-                  role="img"
-                  aria-label="시범 구역 초미세먼지 추정 격자 지도 (시뮬레이션)"
-                >
-                  {Array.from({ length: SIZE * SIZE }, (_, i) => {
-                    const row = Math.floor(i / SIZE);
-                    const col = i % SIZE;
-                    const v = pmAt(row, col);
-                    const { label, cls } = pmClass(v);
-                    const isStation = STATIONS.has(`${row}-${col}`);
-                    return (
-                      <div
-                        key={i}
-                        title={`PM2.5 ${v} μg/m³ · ${label}${isStation ? " · 측정소 실측" : " · 위성 추정"}`}
-                        className={cn(
-                          "tnum relative flex aspect-square items-center justify-center rounded-[4px] text-[10px] font-semibold text-white/95",
-                          cls
-                        )}
-                      >
-                        {v}
-                        {isStation && (
-                          <span
-                            className="absolute right-0.5 top-0.5 block h-1.5 w-1.5 rounded-full bg-white ring-1 ring-black/30"
-                            aria-hidden
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full bg-white ring-1 ring-black/30" /> 측정소(실측 앵커)
-                  </span>
-                  {(
-                    [
-                      ["좋음 ≤15", "bg-sky-500/80"],
-                      ["보통 16–35", "bg-emerald-500/80"],
-                      ["나쁨 36–75", "bg-alert-warn/85"],
-                      ["매우나쁨 76+", "bg-alert-severe/85"],
-                    ] as const
-                  ).map(([l, c]) => (
-                    <span key={l} className="flex items-center gap-1.5">
-                      <span className={cn("h-2.5 w-2.5 rounded-[3px]", c)} /> {l}
-                    </span>
-                  ))}
-                </div>
+                <AirMap />
                 <p className="mt-3 text-xs text-muted-foreground">
-                  시뮬레이션 표본 — 위성 공백 추정 모델(P7·F-GAP-01) 연결 시 실제
-                  격자 추정치와 신뢰도로 교체됩니다. 단위: μg/m³ (PM2.5).
+                  위성 AOD 기반 지상 PM2.5 추정을 부드럽게 보간한 지도 —
+                  위성 공백 추정 모델(P7·F-GAP-01) 연결 시 실제 격자 추정치로
+                  교체됩니다. 색은 한국 대기질 표준(좋음→매우나쁨). 시뮬레이션.
                 </p>
               </div>
             </Reveal>

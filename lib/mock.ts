@@ -101,9 +101,21 @@ export const sourceCandidates = [
   },
 ] as const;
 
+/** 현재(기본 시나리오) 수용지점별 도달 현황 — 홈 요약·경보·관제가 공유 */
+export function defaultReadings() {
+  const p = { ...defaultScenario, h: source.stackHeight };
+  return receptors
+    .map((r) => {
+      const conc = concentrationAt(r.ex, r.ny, p);
+      return { ...r, conc, level: gradeOf(conc) };
+    })
+    .sort((a, b) => b.conc - a.conc);
+}
+
 /** 경보·노출 이력 행 (F-ALOG-01) */
 export interface HistoryRow {
   ts: string; // "MM-DD HH:00"
+  hoursAgo: number; // 기간 필터용 (0 = 최신)
   receptor: string;
   type: Receptor["type"];
   level: AlertLevel;
@@ -140,6 +152,7 @@ export function demoHistory(hours = 72): HistoryRow[] {
       if (level !== "good") {
         rows.push({
           ts,
+          hoursAgo: i,
           receptor: r.name,
           type: r.type,
           level,

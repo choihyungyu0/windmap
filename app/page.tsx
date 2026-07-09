@@ -4,6 +4,7 @@ import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal, RevealLines } from "@/components/site/reveal";
 import { SearchEntry } from "@/components/site/search-entry";
+import { defaultReadings, LEVEL_META } from "@/lib/mock";
 import { Wind, Siren, SatelliteDish, FlaskConical } from "lucide-react";
 
 const FEATURES = [
@@ -11,7 +12,7 @@ const FEATURES = [
     href: "/map",
     icon: Wind,
     title: "확산 예측 지도",
-    desc: "배출원에서 나온 플룸이 바람을 따라 어디로 가는지 3D 지도에 실시간으로 그립니다. 풍향을 돌리면 지도가 바뀝니다.",
+    desc: "배출원에서 나온 플룸이 바람을 따라 어디로 가는지 실시간으로 계산해 그립니다. 풍향을 돌리면 지도가 바뀝니다.",
   },
   {
     href: "/alerts",
@@ -35,6 +36,11 @@ const SOURCES = [
 ];
 
 export default function Home() {
+  // F-SRCH-02 내 주변 위험 요약(간이판) — 시범 구역 기본 시나리오의 현재 상태
+  const readings = defaultReadings();
+  const active = readings.filter((r) => r.level !== "good");
+  const worst = readings[0];
+
   return (
     <>
       <Navbar />
@@ -69,6 +75,40 @@ export default function Home() {
               <p className="mt-4 text-xs text-muted-foreground">
                 시범 지역: 청주시 (배출원 1~3개소) · 데이터: 전 항목 공개 데이터
               </p>
+            </Reveal>
+
+            {/* F-SRCH-02 시범 구역 현재 요약 카드 */}
+            <Reveal delay={0.35}>
+              <Link
+                href="/alerts"
+                className="mt-8 inline-flex max-w-xl flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border px-6 py-4 transition-colors hover:border-brand/50"
+              >
+                <span className="kicker text-muted-foreground">
+                  시범 구역 현재
+                </span>
+                <span className="text-sm font-semibold">
+                  활성 경보 <span className="tnum">{active.length}</span>건
+                </span>
+                {worst && worst.level !== "good" && (
+                  <span className="text-sm text-muted-foreground">
+                    최고 위험: {worst.name}{" "}
+                    <span
+                      className={`font-semibold ${
+                        {
+                          watch: "text-alert-watch",
+                          warn: "text-alert-warn",
+                          severe: "text-alert-severe",
+                        }[worst.level]
+                      }`}
+                    >
+                      {LEVEL_META[worst.level].symbol} {LEVEL_META[worst.level].label}
+                    </span>
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  시뮬레이션 · 자세히 →
+                </span>
+              </Link>
             </Reveal>
           </div>
         </Section>

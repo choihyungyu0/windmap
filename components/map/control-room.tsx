@@ -203,13 +203,16 @@ function SliderRow({
 }
 
 /* ── 메인 관제 화면 ── */
-export function ControlRoom() {
+export function ControlRoom({ query }: { query?: string }) {
   const [q, setQ] = useState(defaultScenario.q);
   const [u, setU] = useState(defaultScenario.u);
   const [wd, setWd] = useState(defaultScenario.wd);
   const [stability, setStability] = useState<Stability>(defaultScenario.stability);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [clock, setClock] = useState<string | null>(null);
+  // F-MAP-04 레이어 토글 / F-MAP-03 수용지점 상세
+  const [layers, setLayers] = useState({ plume: true, facilities: true, rings: true });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
@@ -247,17 +250,25 @@ export function ControlRoom() {
     ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
   }, [params]);
 
-  // 수용지점별 도달 농도 (라이브)
-  const readings = useMemo(
-    () =>
-      receptors
-        .map((r) => {
-          const conc = concentrationAt(r.ex, r.ny, params);
-          return { ...r, conc, level: gradeOf(conc) };
-        })
-        .sort((a, b) => b.conc - a.conc),
-    [params]
-  );
+  // 수용지점별 도달 농도·근사 도달시각 (라이브)
+  const readings = useMemo(() => {
+    const bearing = ((params.wd + 180) % 360) * (Math.PI / 180);
+    return receptors
+      .map((r) => {
+        const conc = concentrationAt(r.ex, r.ny, params);
+        const downwind = r.ex * Math.sin(bearing) + r.ny * Math.cos(bearing);
+        const etaMin =
+          downwind > 0
+            ? Math.round(downwind / Math.max(params.u, 0.5) / 60)
+            : null;
+        return { ...r, conc, level: gradeOf(conc), downwind, etaMin };
+      })
+      .sort((a, b) => b.conc - a.conc);
+  }, [params]);
+
+  const selected = selectedId
+    ? readings.find((r) => r.id === selectedId) ?? null
+    : null;
 
   return (
     <div className="min-h-screen bg-control-bg text-control-text">
@@ -275,6 +286,15 @@ export function ControlRoom() {
           확산 관제 <span className="font-data">MAP</span>
         </h1>
         <div className="ml-auto flex items-center gap-3">
+          {/* F-SRCH-01 검색 진입 인지 — 지오코딩 연동(P5) 전 안내 */}
+          {query && (
+            <span
+              className="hidden max-w-[18rem] truncate rounded-full border border-wind/40 bg-wind/10 px-3 py-1 text-xs text-wind md:block"
+              title={`"${query}" — 주소 정밀 조회(지오코딩)는 P5 연동 예정`}
+            >
+              “{query}” 주변 보기 · 정밀 조회 연동 예정
+            </span>
+          )}
           <MapGuide />
           <span className="hidden rounded-full border border-control-line px-3 py-1 text-xs text-control-muted sm:block">
             시범 모드 · 시뮬레이션 데이터
@@ -316,6 +336,32 @@ export function ControlRoom() {
             </select>
           </label>
 
+          {/* F-MAP-04 레이어 토글 */}
+          <div role="group" aria-label="레이어 표시" className="border-t border-control-line pt-4">
+            <h2 className="kicker text-control-muted">레이어</h2>
+            <div className="mt-2.5 flex flex-col gap-2">
+              {(
+                [
+                  ["plume", "플룸 (농도장)"],
+                  ["facilities", "취약시설"],
+                  ["rings", "거리 링"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={layers[key]}
+                    onChange={() =>
+                      setLayers((l) => ({ ...l, [key]: !l[key] }))
+                    }
+                    className="size-4 accent-[var(--wind)]"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
           <dl className="space-y-1.5 border-t border-control-line pt-4 text-xs text-control-muted">
             <div className="flex justify-between">
               <dt>배출원</dt>
@@ -345,20 +391,30 @@ export function ControlRoom() {
               <rect width="100%" height="100%" fill="url(#grid)" />
             </svg>
 
-            {/* 플룸 히트맵 */}
-            <canvas ref={canvasRef} width={640} height={640} className="absolute inset-0 h-full w-full" />
+            {/* 플룸 히트맵 (레이어 토글 시 숨김 — 마운트 유지로 재계산 회피) */}
+            <canvas
+              ref={canvasRef}
+              width={640}
+              height={640}
+              className="absolute inset-0 h-full w-full transition-opacity"
+              style={{ opacity: layers.plume ? 1 : 0 }}
+            />
 
             {/* 거리 링 + 방위 */}
             <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden>
-              {[1, 2].map((km) => (
-                <circle
-                  key={km}
-                  cx="50" cy="50" r={(km * 2000 / (HALF_EXTENT * 2)) * 100}
-                  fill="none" stroke="var(--control-line)" strokeDasharray="1.5 2"
-                />
-              ))}
-              <text x="50" y={50 - (2000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">2km</text>
-              <text x="50" y={50 - (4000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">4km</text>
+              {layers.rings && (
+                <>
+                  {[1, 2].map((km) => (
+                    <circle
+                      key={km}
+                      cx="50" cy="50" r={(km * 2000 / (HALF_EXTENT * 2)) * 100}
+                      fill="none" stroke="var(--control-line)" strokeDasharray="1.5 2"
+                    />
+                  ))}
+                  <text x="50" y={50 - (2000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">2km</text>
+                  <text x="50" y={50 - (4000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">4km</text>
+                </>
+              )}
               <text x="50" y="5" textAnchor="middle" fontSize="3.2" fill="var(--control-muted)">N</text>
             </svg>
 
@@ -370,25 +426,101 @@ export function ControlRoom() {
               </span>
             </div>
 
-            {/* 수용지점 마커 */}
-            {readings.map((r) => (
+            {/* 수용지점 마커 — 클릭 시 상세 (F-MAP-03) */}
+            {layers.facilities &&
+              readings.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() =>
+                    setSelectedId((cur) => (cur === r.id ? null : r.id))
+                  }
+                  aria-label={`${r.name} 상세 보기`}
+                  aria-pressed={selectedId === r.id}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer"
+                  style={{
+                    left: `${((r.ex + HALF_EXTENT) / (HALF_EXTENT * 2)) * 100}%`,
+                    top: `${((HALF_EXTENT - r.ny) / (HALF_EXTENT * 2)) * 100}%`,
+                  }}
+                >
+                  <span
+                    className={
+                      "block h-2.5 w-2.5 rounded-sm border transition-transform " +
+                      (selectedId === r.id
+                        ? "scale-150 border-white"
+                        : "border-white/50 hover:scale-125")
+                    }
+                    style={{ background: LEVEL_COLOR[r.level] }}
+                  />
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] text-control-muted">
+                    {r.name}
+                  </span>
+                </button>
+              ))}
+
+            {/* 수용지점 상세 패널 (F-MAP-03) */}
+            {selected && (
               <div
-                key={r.id}
-                className="absolute -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  left: `${((r.ex + HALF_EXTENT) / (HALF_EXTENT * 2)) * 100}%`,
-                  top: `${((HALF_EXTENT - r.ny) / (HALF_EXTENT * 2)) * 100}%`,
-                }}
+                role="dialog"
+                aria-label={`${selected.name} 상세`}
+                className="absolute right-3 top-3 w-64 rounded-lg border border-control-line bg-control-bg/90 p-4 backdrop-blur"
               >
-                <span
-                  className="block h-2.5 w-2.5 rounded-sm border border-white/50"
-                  style={{ background: LEVEL_COLOR[r.level] }}
-                />
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] text-control-muted">
-                  {r.name}
-                </span>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold">{selected.name}</h3>
+                    <p className="text-xs text-control-muted">{selected.type}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    aria-label="상세 닫기"
+                    className="text-control-muted transition-colors hover:text-control-text"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <dl className="mt-3 space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <dt className="text-control-muted">예측 도달 농도</dt>
+                    <dd className="font-data">
+                      {selected.conc < 0.1 ? "< 0.1" : selected.conc.toFixed(1)} μg/m³
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-control-muted">등급</dt>
+                    <dd
+                      className="font-semibold"
+                      style={{ color: LEVEL_COLOR[selected.level] }}
+                    >
+                      {LEVEL_META[selected.level].symbol}{" "}
+                      {LEVEL_META[selected.level].label}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-control-muted">풍하 거리</dt>
+                    <dd className="font-data">
+                      {selected.downwind > 0
+                        ? `${(selected.downwind / 1000).toFixed(1)} km`
+                        : "영향권 밖"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-control-muted">도달 예상</dt>
+                    <dd className="font-data">
+                      {selected.etaMin === null ? "—" : `약 ${selected.etaMin}분 후`}
+                    </dd>
+                  </div>
+                </dl>
+                {selected.level !== "good" && (
+                  <p className="mt-3 border-t border-control-line pt-2.5 text-xs leading-relaxed text-control-muted">
+                    {LEVEL_META[selected.level].advice}
+                  </p>
+                )}
+                <p className="mt-2 text-[10px] text-control-muted">
+                  시간별 농도곡선은 퍼프 모델(P3) 연동 시 제공됩니다.
+                </p>
               </div>
-            ))}
+            )}
 
             {/* 범례 */}
             <div className="absolute bottom-3 left-3 rounded-md border border-control-line bg-control-bg/85 px-3 py-2 backdrop-blur">

@@ -20,9 +20,11 @@ export function HistoryBoard() {
   const all = useMemo(() => demoHistory(72), []);
   const [receptor, setReceptor] = useState<string>("all");
   const [level, setLevel] = useState<"all" | AlertLevel>("all");
+  const [hours, setHours] = useState(72); // 기간 필터 (F-ALOG-01)
 
   const rows = all.filter(
     (r) =>
+      r.hoursAgo < hours &&
       (receptor === "all" || r.receptor === receptor) &&
       (level === "all" || r.level === level)
   );
@@ -51,6 +53,18 @@ export function HistoryBoard() {
     <div>
       {/* 필터 + 내보내기 */}
       <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm text-control-muted">
+          기간
+          <select
+            value={hours}
+            onChange={(e) => setHours(Number(e.target.value))}
+            className="rounded-md border border-control-line bg-control-bg px-3 py-1.5 text-sm text-control-text"
+          >
+            <option value={24}>최근 24시간</option>
+            <option value={48}>최근 48시간</option>
+            <option value={72}>최근 72시간</option>
+          </select>
+        </label>
         <label className="flex items-center gap-2 text-sm text-control-muted">
           시설
           <select

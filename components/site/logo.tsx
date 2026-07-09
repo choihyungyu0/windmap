@@ -1,7 +1,10 @@
 import { brand } from "@/lib/content";
 import { cn } from "@/lib/utils";
 
-/** Brand mark — square(제조) ∪ circle(개발) = 통합 솔루션. Inherits currentColor. */
+/**
+ * Brand mark — 바람 흐름선(streamline) 3획. 지도 위 플룸과 같은 모티프로
+ * 브랜드 일관성을 만든다. currentColor 상속 (라이트/다크 겸용).
+ */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg
@@ -9,10 +12,22 @@ export function LogoMark({ className }: { className?: string }) {
       fill="none"
       aria-hidden
       className={className}
-      strokeLinejoin="round"
+      strokeLinecap="round"
     >
-      <rect x="3" y="3" width="12.5" height="12.5" rx="2.4" stroke="currentColor" strokeWidth="2.1" />
-      <circle cx="15.2" cy="15.2" r="6.2" stroke="currentColor" strokeWidth="2.1" />
+      {/* 위 흐름선 — 끝이 말리는 바람 관례 (기상 아이콘 계열) */}
+      <path
+        d="M3 7.5h11.5a2.6 2.6 0 1 0-2.5-3.3"
+        stroke="currentColor"
+        strokeWidth="2.1"
+      />
+      {/* 가운데 흐름선 — 가장 길게, 주풍 */}
+      <path
+        d="M3 12.5h16a2.8 2.8 0 1 1-2.6 3.7"
+        stroke="currentColor"
+        strokeWidth="2.1"
+      />
+      {/* 아래 흐름선 — 짧게, 지표풍 */}
+      <path d="M3 17.5h8.5" stroke="currentColor" strokeWidth="2.1" />
     </svg>
   );
 }

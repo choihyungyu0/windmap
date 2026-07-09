@@ -31,6 +31,18 @@
   --color-paper: var(--paper);
   --color-brand: var(--brand);
 
+  /* 바람의 지도 — 관제·경보 팔레트 */
+  --color-wind: var(--wind);
+  --color-control-bg: var(--control-bg);
+  --color-control-surface: var(--control-surface);
+  --color-control-line: var(--control-line);
+  --color-control-text: var(--control-text);
+  --color-control-muted: var(--control-muted);
+  --color-alert-good: var(--alert-good);
+  --color-alert-watch: var(--alert-watch);
+  --color-alert-warn: var(--alert-warn);
+  --color-alert-severe: var(--alert-severe);
+
   --font-sans: var(--font-sans-stack);
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -64,7 +76,23 @@
   --input: rgba(11, 11, 12, 0.18);
   --ring: #0b0b0c;
 
-  --brand: #2563eb; /* 로고 블루 기준 (구 #1d4ed8) */
+  /* 공공 라이트 화면 브랜드 — 틸(공기·물 계열). 흰 배경 텍스트 AA 충족. */
+  --brand: #0e7490;
+  /* 시안 — 바람·데이터 그래픽 전용 (흰 배경 텍스트로 쓰지 말 것: 대비 미달) */
+  --wind: #00b8d4;
+
+  /* 관제(다크) 테마 — /map · /admin 계열 화면 */
+  --control-bg: #0b1b2b;
+  --control-surface: #102437;
+  --control-line: rgba(125, 180, 220, 0.16);
+  --control-text: #d7e5f0;
+  --control-muted: #7c93a8;
+
+  /* 경보 색계 — 색 단독 금지: 항상 아이콘·수치·라벨 병행 (색맹 대응) */
+  --alert-good: #0d9488;
+  --alert-watch: #d97706;
+  --alert-warn: #ea580c;
+  --alert-severe: #dc2626;
 
   --font-sans-stack: var(--font-pretendard), "Pretendard Variable", Pretendard,
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -157,6 +185,13 @@
 
   .tnum {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* 관측소·관제 수치 전용 — 고정폭 + 탭룰러 (농도·풍속·시각 표기) */
+  .font-data {
+    font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
   /* big editorial display scale — Pretendard (site default) */

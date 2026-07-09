@@ -325,13 +325,32 @@ export function ControlRoom({ query }: { query?: string }) {
     if (!emdGeo) return out;
     for (const f of emdGeo.features) {
       const [lng, lat] = f.properties.centroid;
-      const [ex, ny] = lngLatToOffset(lng, lat);
-      // 관심 반경 밖(>8km)은 계산 생략 — 항상 good
-      if (Math.abs(ex) > 8000 || Math.abs(ny) > 8000) {
+      const [cex, cny] = lngLatToOffset(lng, lat);
+      // 관심 반경 밖(>9km)은 계산 생략 — 항상 good
+      if (Math.abs(cex) > 9000 || Math.abs(cny) > 9000) {
         out[f.properties.adm_cd2] = "good";
         continue;
       }
-      out[f.properties.adm_cd2] = gradeOf(concentrationAt(ex, ny, params));
+      // 중심점 + 경계 정점 최대 농도 — 플룸이 동을 가로지르는 경우 포착
+      let maxConc = concentrationAt(cex, cny, params);
+      const geom = f.geometry as unknown as {
+        type: string;
+        coordinates: number[][][] | number[][][][];
+      };
+      const polys =
+        geom.type === "MultiPolygon"
+          ? (geom.coordinates as number[][][][])
+          : [geom.coordinates as number[][][]];
+      for (const poly of polys) {
+        const ring = poly[0];
+        for (let i = 0; i < ring.length; i += 3) {
+          const [ex, ny] = lngLatToOffset(ring[i][0], ring[i][1]);
+          if (Math.abs(ex) > 9000 || Math.abs(ny) > 9000) continue;
+          const c = concentrationAt(ex, ny, params);
+          if (c > maxConc) maxConc = c;
+        }
+      }
+      out[f.properties.adm_cd2] = gradeOf(maxConc);
     }
     return out;
   }, [emdGeo, params]);

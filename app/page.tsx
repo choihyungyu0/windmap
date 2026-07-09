@@ -57,7 +57,16 @@ export default function Home() {
             </Reveal>
             <RevealLines
               as="h1"
-              text={"이 공기는 어디서 와서,\n어디로 갑니까"}
+              richLines={[
+                <>
+                  이{" "}
+                  <span className="bg-gradient-to-r from-[#0e7490] via-[#00b8d4] to-[#22d3ee] bg-clip-text text-transparent">
+                    공기
+                  </span>
+                  는 어디서 와서,
+                </>,
+                "어디로 갑니까",
+              ]}
               className="display mt-6 block text-[clamp(2.6rem,6.5vw,5rem)]"
             />
             <Reveal delay={0.15}>

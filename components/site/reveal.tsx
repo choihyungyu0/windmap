@@ -39,12 +39,15 @@ export function Reveal({
  */
 export function RevealLines({
   text,
+  richLines,
   className,
   lineClassName,
   delay = 0,
   as: Tag = "span",
 }: {
-  text: string;
+  text?: string;
+  /** 라인별 리치 콘텐츠 (강조 span 등) — text 대신 사용 */
+  richLines?: ReactNode[];
   className?: string;
   lineClassName?: string;
   delay?: number;
@@ -52,7 +55,7 @@ export function RevealLines({
   as?: ElementType;
 }) {
   const reduce = useReducedMotion();
-  const lines = text.split("\n");
+  const lines: ReactNode[] = richLines ?? (text ?? "").split("\n");
 
   if (reduce) {
     return (

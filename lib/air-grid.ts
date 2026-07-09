@@ -209,7 +209,15 @@ export function renderAirCanvasClipped(
   }
   ctx.clip();
   ctx.drawImage(base, 0, 0);
-  return out;
+
+  // 가장자리 페더 — 딱 떨어진 클립 경계(픽셀 톱니)를 살짝 번지게
+  const feather = document.createElement("canvas");
+  feather.width = n;
+  feather.height = n;
+  const fctx = feather.getContext("2d")!;
+  fctx.filter = "blur(1.4px)";
+  fctx.drawImage(out, 0, 0);
+  return feather;
 }
 
 /** 임의 지점 추정값 (지도 클릭 팝업용) */

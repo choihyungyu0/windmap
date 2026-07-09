@@ -54,7 +54,7 @@ export function AirMap() {
           data: { type: "FeatureCollection", features: emd } as any,
           stroked: true,
           filled: false,
-          getLineColor: [230, 238, 245, 60],
+          getLineColor: [235, 242, 248, 95],
           getLineWidth: 1,
           lineWidthUnits: "pixels",
         })

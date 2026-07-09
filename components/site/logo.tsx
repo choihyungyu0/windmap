@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { brand } from "@/lib/content";
 import { cn } from "@/lib/utils";
 
@@ -32,20 +33,18 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-/** Mark + wordmark lockup. */
-export function Logo({
-  className,
-  showWordmark = true,
-}: {
-  className?: string;
-  showWordmark?: boolean;
-}) {
+/** 정식 로고 (라이트 배경 전용 — 남색 워드마크). 다크 화면은 LogoMark 사용. */
+export function Logo({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5", className)}>
-      <LogoMark className="h-5 w-5" />
-      {showWordmark && (
-        <span className="text-base font-bold tracking-tight">{brand.name}</span>
-      )}
+    <span className={cn("inline-flex items-center", className)}>
+      <Image
+        src="/images/logo.png"
+        alt={brand.name}
+        width={434}
+        height={154}
+        priority
+        className="h-9 w-auto lg:h-10"
+      />
     </span>
   );
 }

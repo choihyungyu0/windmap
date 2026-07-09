@@ -34,6 +34,11 @@ const FILL: Record<AlertLevel, string> = {
 
 const VB = 720; // viewBox 한 변
 
+const DIR_NAMES = [
+  "북", "북북동", "북동", "동북동", "동", "동남동", "남동", "남남동",
+  "남", "남남서", "남서", "서남서", "서", "서북서", "북서", "북북서",
+] as const;
+
 export function RiskMap() {
   const router = useRouter();
   const [features, setFeatures] = useState<Feature[] | null>(null);
@@ -140,11 +145,11 @@ export function RiskMap() {
         ))}
       </div>
 
-      {/* SVG 코로플레스 */}
+      {/* SVG 코로플레스 — 높이 제한(첫 화면에 지도+카드가 같이 보이게) */}
       <div className="relative mt-4 overflow-hidden rounded-xl border border-border">
         <svg
           viewBox={`0 0 ${VB} ${VB * 0.78}`}
-          className="block w-full"
+          className="mx-auto block max-h-[540px] w-full"
           role="img"
           aria-label="행정동별 위험 지도 (시뮬레이션)"
         >
@@ -169,7 +174,36 @@ export function RiskMap() {
               </path>
             ))}
 
-          {/* 영향 동 라벨 */}
+          {/* 바람 방향 화살표 — "왜 이 동네가 위험한가"의 인과 표시 */}
+          {(() => {
+            const rad = (((defaultScenario.wd + 180) % 360) * Math.PI) / 180;
+            const dx = Math.sin(rad);
+            const dy = -Math.cos(rad); // svg y축은 아래가 +
+            const x1 = scene.src.x + dx * 22;
+            const y1 = scene.src.y + dy * 22;
+            const x2 = scene.src.x + dx * 130;
+            const y2 = scene.src.y + dy * 130;
+            const head = 11;
+            const hx = Math.sin(rad + 2.6);
+            const hy = -Math.cos(rad + 2.6);
+            const gx = Math.sin(rad - 2.6);
+            const gy = -Math.cos(rad - 2.6);
+            return (
+              <g aria-hidden>
+                <line
+                  x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke="#0e7490" strokeWidth="3" strokeDasharray="7 5"
+                  strokeLinecap="round" opacity="0.85"
+                />
+                <path
+                  d={`M ${x2 + dx * head} ${y2 + dy * head} L ${x2 + hx * head} ${y2 + hy * head} L ${x2 + gx * head} ${y2 + gy * head} Z`}
+                  fill="#0e7490" opacity="0.85"
+                />
+              </g>
+            );
+          })()}
+
+          {/* 영향 동 라벨 — 흰 후광으로 가독성 확보 */}
           {scene.affected.map((s) => (
             <text
               key={"t" + s.emd}
@@ -179,6 +213,10 @@ export function RiskMap() {
               fontSize="13"
               fontWeight="600"
               fill="#1f2937"
+              stroke="#ffffff"
+              strokeWidth="3.5"
+              strokeLinejoin="round"
+              paintOrder="stroke"
             >
               {s.emd}
             </text>
@@ -186,10 +224,30 @@ export function RiskMap() {
 
           {/* 배출원 */}
           <circle cx={scene.src.x} cy={scene.src.y} r="6" fill="#fff" stroke="#0e7490" strokeWidth="3" />
-          <text x={scene.src.x + 10} y={scene.src.y + 4} fontSize="12" fill="#0e7490" fontWeight="600">
+          <text
+            x={scene.src.x + 10}
+            y={scene.src.y + 4}
+            fontSize="12"
+            fill="#0e7490"
+            fontWeight="600"
+            stroke="#ffffff"
+            strokeWidth="3.5"
+            strokeLinejoin="round"
+            paintOrder="stroke"
+          >
             시범 배출원
           </text>
         </svg>
+
+        {/* 시나리오 배지 — 바람 조건(인과)을 지도 위에 명시 */}
+        <p className="absolute left-3 top-3 rounded-md border border-border bg-white/90 px-3 py-1.5 text-xs font-medium backdrop-blur">
+          {DIR_NAMES[Math.round(defaultScenario.wd / 22.5) % 16]}풍{" "}
+          <span className="font-data">{defaultScenario.wd}°</span> ·{" "}
+          <span className="font-data">{defaultScenario.u} m/s</span>
+          <span className="ml-1.5 text-muted-foreground">
+            → 화살표 방향으로 확산
+          </span>
+        </p>
 
         {/* 범례 */}
         <div className="absolute bottom-3 left-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-border bg-white/90 px-3 py-2 text-xs backdrop-blur">

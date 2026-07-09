@@ -227,12 +227,19 @@ export default async function ReportPage() {
                   />
                 </div>
                 <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-                  보정 B2(청록)가 물리 단독 B1b(회색 점선)보다 관측 피크의 높이와
-                  시점을 가깝게 따라갑니다 — 상관계수 R{" "}
+                  보정 B2(청록)가 물리 단독 B1b(회색 점선)보다 관측 추세를 가깝게
+                  따라갑니다 — 상관계수 R{" "}
                   <span className="font-data">
                     {ladder.find((s) => s.id === "B2")?.r}
                   </span>
-                  . {real.series.note}. 단위: μg/m³.
+                  . {real.series.note}. 단위: μg/m³. 예측은 물리 제약상 0 하한
+                  절단.{" "}
+                  <strong className="font-medium text-foreground">
+                    한계의 정직한 명시 —
+                  </strong>{" "}
+                  현 선형 보정은 물리모델의 평시 과예측 억제에 강하고, 드문 최대
+                  피크의 재현은 아직 부족합니다. 비선형 모델 교체(P6b)와 실측
+                  학습(P2b)로 해소할 과제입니다.
                 </p>
               </div>
             </Reveal>

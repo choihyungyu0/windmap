@@ -202,7 +202,8 @@ def run() -> dict:
         "B0": [0.0] * len(test),  # 국가 방식 — 배출원 기여 귀속 없음
         "B1a": [r["b1a"] for r in test],
         "B1b": [r["b1b"] for r in test],
-        "B2": [model.predict(features(r)) for r in test],
+        # 배출원 기여 농도는 물리적으로 음수 불가 — 0 하한 절단 (튜닝 아님)
+        "B2": [max(0.0, model.predict(features(r))) for r in test],
     }
 
     ladder = []

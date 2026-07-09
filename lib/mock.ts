@@ -7,7 +7,7 @@
  * "시범 배출원 A", 수용지점은 유형+가나다 익명 표기.
  */
 
-import type { Stability } from "./plume";
+import { concentrationAt, type Stability } from "./plume";
 
 /** 수용지점(취약시설) — 배출원 원점 기준 동/북 오프셋(m), 유형별 익명 명칭 */
 export interface Receptor {
@@ -63,6 +63,95 @@ export const defaultScenario = {
   wd: 315, // 북서풍
   stability: "D" as Stability,
 };
+
+/** 시범 배출원 목록 — 관리자 화면(F-ASRC-01/02) 프레임용. CleanSYS 연동은 P2. */
+export const sourceCandidates = [
+  {
+    id: "s1",
+    name: "시범 배출원 A (소각시설)",
+    lat: 36.72,
+    lon: 127.49,
+    stackH: 40,
+    stackDia: 1.8,
+    gasTemp: 160,
+    gasVel: 12,
+    active: true,
+  },
+  {
+    id: "s2",
+    name: "배출원 후보 B (산단 보일러)",
+    lat: 36.71,
+    lon: 127.53,
+    stackH: 55,
+    stackDia: 2.2,
+    gasTemp: 180,
+    gasVel: 15,
+    active: false,
+  },
+  {
+    id: "s3",
+    name: "배출원 후보 C (소각시설)",
+    lat: 36.74,
+    lon: 127.46,
+    stackH: 35,
+    stackDia: 1.5,
+    gasTemp: 150,
+    gasVel: 10,
+    active: false,
+  },
+] as const;
+
+/** 경보·노출 이력 행 (F-ALOG-01) */
+export interface HistoryRow {
+  ts: string; // "MM-DD HH:00"
+  receptor: string;
+  type: Receptor["type"];
+  level: AlertLevel;
+  conc: number;
+  wd: number;
+  u: number;
+}
+
+/**
+ * 데모 이력 생성 — 결정적(시드 고정, Math.random 미사용).
+ * 시간별로 풍향·풍속·배출률을 규칙적으로 변화시키며 플룸 엔진으로
+ * 실제 농도를 계산해, "좋음"이 아닌 시점만 경보 이력으로 남긴다.
+ * P2 수집 파이프라인이 붙으면 DB(alert 테이블) 조회로 교체.
+ */
+export function demoHistory(hours = 72): HistoryRow[] {
+  const rows: HistoryRow[] = [];
+  // 고정 기준 시각 (재현성 — NFR-8): 2026-07-09 12:00 에서 과거로
+  const base = new Date(2026, 6, 9, 12, 0, 0);
+  for (let i = 0; i < hours; i++) {
+    const wd = (290 + i * 17) % 360;
+    const u = 1.5 + ((i * 7) % 8) * 0.7;
+    const q = 25 + ((i * 11) % 50);
+    const t = new Date(base.getTime() - i * 3600_000);
+    const ts = `${String(t.getMonth() + 1).padStart(2, "0")}-${String(
+      t.getDate()
+    ).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:00`;
+    for (const r of receptors) {
+      const conc = concentrationAt(r.ex, r.ny, {
+        q, u, wd,
+        stability: "D",
+        h: source.stackHeight,
+      });
+      const level = gradeOf(conc);
+      if (level !== "good") {
+        rows.push({
+          ts,
+          receptor: r.name,
+          type: r.type,
+          level,
+          conc: Math.round(conc * 10) / 10,
+          wd,
+          u: Math.round(u * 10) / 10,
+        });
+      }
+    }
+  }
+  return rows;
+}
 
 /** /report 프레임용 애블레이션 예시 수치 — P6 실검증값으로 교체 (라벨 필수) */
 export const ablationExample = {

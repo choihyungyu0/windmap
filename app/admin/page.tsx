@@ -1,41 +1,158 @@
 import type { Metadata } from "next";
-import { LogoutButton } from "./logout-button";
+import Link from "next/link";
+import { AdminShell } from "@/components/admin/admin-shell";
+import { concentrationAt } from "@/lib/plume";
+import {
+  defaultScenario,
+  gradeOf,
+  LEVEL_META,
+  receptors,
+  source,
+  sourceCandidates,
+} from "@/lib/mock";
 
 export const metadata: Metadata = {
   title: "관제 대시보드",
   robots: { index: false, follow: false },
 };
 
-/**
- * ADM-DSH 관제 대시보드 (F-ADSH-01/02) — P7에서 구현.
- * 배출원 상태·활성 경보·시설 위험도 집계가 이 화면에 들어온다.
- */
-export default function AdminDashboardPage() {
-  return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 px-6 py-16">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium tracking-widest text-muted-foreground">
-            ADMIN · 바람의 지도
-          </p>
-          <h1 className="mt-1 text-3xl font-bold">관제 대시보드</h1>
-        </div>
-        <LogoutButton />
-      </header>
+const LEVEL_BG: Record<string, string> = {
+  good: "var(--alert-good)",
+  watch: "var(--alert-watch)",
+  warn: "var(--alert-warn)",
+  severe: "var(--alert-severe)",
+};
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        {[
-          { label: "배출원 상태", desc: "시범 배출원 가동·수집 상태 (F-ADSH-01)" },
-          { label: "활성 경보", desc: "현재 발령 중인 취약시설 경보 (F-ADSH-02)" },
-          { label: "시설 위험도", desc: "취약시설별 위험도 집계 (F-ADSH-01)" },
-        ].map((c) => (
-          <div key={c.label} className="rounded-lg border border-border p-5">
-            <h2 className="font-semibold">{c.label}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{c.desc}</p>
-            <p className="mt-4 text-xs text-muted-foreground">P7 단계 구현 예정</p>
+/** ADM-DSH 관제 대시보드 (F-ADSH-01/02) — 기본 시나리오 플룸 실계산 집계.
+ *  실시간 스트림(WS)·TMS 수집 연동은 P2/P7. */
+export default function AdminDashboardPage() {
+  const p = { ...defaultScenario, h: source.stackHeight };
+  const readings = receptors
+    .map((r) => {
+      const conc = concentrationAt(r.ex, r.ny, p);
+      return { ...r, conc, level: gradeOf(conc) };
+    })
+    .sort((a, b) => b.conc - a.conc);
+  const active = readings.filter((r) => r.level !== "good");
+  const worst = readings[0];
+
+  const cards = [
+    {
+      label: "감시 배출원",
+      value: `${sourceCandidates.filter((s) => s.active).length} / ${sourceCandidates.length}`,
+      note: "TMS 수집 연동 P2 예정",
+    },
+    {
+      label: "활성 경보",
+      value: String(active.length),
+      note: active.map((a) => LEVEL_META[a.level].label).join(" · ") || "없음",
+    },
+    {
+      label: "감시 취약시설",
+      value: String(receptors.length),
+      note: "학교·병원·경로당·주거지",
+    },
+    {
+      label: "현재 시나리오",
+      value: `${p.wd}° · ${p.u} m/s`,
+      note: `배출률 ${p.q} g/s · 안정도 ${p.stability}`,
+    },
+  ];
+
+  return (
+    <AdminShell>
+      <div className="flex items-baseline justify-between gap-4">
+        <h1 className="text-2xl font-bold">관제 대시보드</h1>
+        <span className="rounded-full border border-control-line px-3 py-1 text-xs text-control-muted">
+          시범 모드 · 시뮬레이션 데이터
+        </span>
+      </div>
+
+      {/* 요약 지표 (F-ADSH-01) */}
+      <section aria-label="요약 지표" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((c) => (
+          <div key={c.label} className="rounded-lg border border-control-line bg-control-surface/60 p-5">
+            <p className="text-xs text-control-muted">{c.label}</p>
+            <p className="font-data mt-2 text-2xl font-semibold">{c.value}</p>
+            <p className="mt-1.5 text-xs text-control-muted">{c.note}</p>
           </div>
         ))}
       </section>
-    </main>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        {/* 실시간 경보 패널 (F-ADSH-02) */}
+        <section
+          aria-label="활성 경보"
+          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+        >
+          <div className="flex items-baseline justify-between">
+            <h2 className="kicker text-control-muted">활성 경보</h2>
+            <span className="text-xs text-control-muted">WS 실시간 갱신 — P7 연동</span>
+          </div>
+          {active.length === 0 ? (
+            <p className="mt-6 text-sm text-control-muted">현재 활성 경보가 없습니다.</p>
+          ) : (
+            <ul className="mt-4 flex flex-col gap-2.5">
+              {active.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center gap-3 rounded-md border border-control-line bg-control-bg/50 px-4 py-3"
+                >
+                  <span
+                    className="flex h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: LEVEL_BG[a.level] }}
+                    aria-hidden
+                  />
+                  <span className="text-sm font-medium">{a.name}</span>
+                  <span className="text-xs text-control-muted">{a.type}</span>
+                  <span className="font-data ml-auto text-sm">
+                    {a.conc.toFixed(1)}
+                    <span className="ml-1 text-[10px] text-control-muted">μg/m³</span>
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: LEVEL_BG[a.level] }}>
+                    {LEVEL_META[a.level].symbol} {LEVEL_META[a.level].label}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Link
+            href="/admin/history"
+            className="mt-5 inline-block text-sm text-wind underline-offset-4 hover:underline"
+          >
+            경보·노출 이력 조회 →
+          </Link>
+        </section>
+
+        {/* 시설 위험도 집계 */}
+        <section
+          aria-label="시설 위험도"
+          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+        >
+          <h2 className="kicker text-control-muted">시설 위험도</h2>
+          <ul className="mt-4 flex flex-col gap-2">
+            {readings.map((r) => (
+              <li key={r.id} className="flex items-center gap-2.5 text-sm">
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: LEVEL_BG[r.level] }}
+                  aria-hidden
+                />
+                <span>{r.name}</span>
+                <span className="font-data ml-auto text-control-muted">
+                  {r.conc < 0.1 ? "< 0.1" : r.conc.toFixed(1)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {worst && worst.level !== "good" && (
+            <p className="mt-5 rounded-md border border-control-line bg-control-bg/50 px-4 py-3 text-xs leading-relaxed text-control-muted">
+              최고 위험: <strong className="text-control-text">{worst.name}</strong> —{" "}
+              {LEVEL_META[worst.level].advice}
+            </p>
+          )}
+        </section>
+      </div>
+    </AdminShell>
   );
 }

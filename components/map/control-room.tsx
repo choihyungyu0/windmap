@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { LogoMark } from "@/components/site/logo";
+import { MapGuide } from "@/components/map/map-guide";
 import { computeGrid, concentrationAt, type Stability } from "@/lib/plume";
 import {
   defaultScenario,
@@ -274,7 +275,8 @@ export function ControlRoom() {
           확산 관제 <span className="font-data">MAP</span>
         </h1>
         <div className="ml-auto flex items-center gap-3">
-          <span className="rounded-full border border-control-line px-3 py-1 text-xs text-control-muted">
+          <MapGuide />
+          <span className="hidden rounded-full border border-control-line px-3 py-1 text-xs text-control-muted sm:block">
             시범 모드 · 시뮬레이션 데이터
           </span>
           <span className="font-data hidden text-sm text-control-muted sm:block" suppressHydrationWarning>

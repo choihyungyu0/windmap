@@ -45,7 +45,7 @@ export default function AdminLoginPage() {
         <p className="kicker text-foreground/45">Admin</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">관리자 로그인</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          문의 내역 관리를 위한 페이지입니다.
+          확산 관제·배출원 관리를 위한 페이지입니다.
         </p>
 
         <label className="mt-6 block text-sm font-medium" htmlFor="admin-pw">

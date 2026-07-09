@@ -1,0 +1,537 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ─────────────────────────────────────────────
+   Light, photography-first corporate theme
+   white / near-black · restrained ink-blue accent
+   ───────────────────────────────────────────── */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-brand: var(--brand);
+
+  --font-sans: var(--font-sans-stack);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --paper: #ffffff;
+  --ink: #0b0b0c;
+
+  --background: #ffffff;
+  --foreground: #0b0b0c;
+  --card: #ffffff;
+  --card-foreground: #0b0b0c;
+  --popover: #ffffff;
+  --popover-foreground: #0b0b0c;
+  --primary: #0b0b0c;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #0b0b0c;
+  --muted: #f5f5f6;
+  --muted-foreground: #6b6b73;
+  --accent: #f0f0f2;
+  --accent-foreground: #0b0b0c;
+  --destructive: #dc2626;
+  --border: rgba(11, 11, 12, 0.12);
+  --input: rgba(11, 11, 12, 0.18);
+  --ring: #0b0b0c;
+
+  --brand: #2563eb; /* 로고 블루 기준 (구 #1d4ed8) */
+
+  --font-sans-stack: var(--font-pretendard), "Pretendard Variable", Pretendard,
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  /* 전역 단일 폰트(Pretendard) — 표시/세리프/라틴 액센트 변수를 모두 Pretendard 스택으로
+     통일. 기존 유틸리티(.font-accent·.font-display-ko 등)와 인라인 var(--font-serif)
+     사용처가 전부 Pretendard 로 해석됩니다. (레이아웃에서 다른 폰트 로더는 제거함) */
+  --font-serif: var(--font-sans-stack);
+  --font-display-ko: var(--font-sans-stack);
+  --font-latin: var(--font-sans-stack);
+  --font-accent: var(--font-sans-stack);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* 앵커 이동만 부드럽게(휠/터치는 네이티브 유지), 고정 네비 높이만큼 오프셋 */
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans-stack);
+    font-feature-settings: "ss01", "cv01", "tnum";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Korean: break between words, never mid-word */
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    word-break: keep-all;
+    font-weight: 700;
+  }
+
+  ::selection {
+    background: var(--ink);
+    color: #fff;
+  }
+
+  /* Keyboard focus indicator — the site hides the native cursor, so a strong,
+     consistent focus ring is the primary affordance for keyboard users.
+     :where() keeps specificity at 0 so components with their own focus styles
+     still win. Brand blue stays visible on both light and dark sections. */
+  :where(a, button, [role="button"]):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  /* eyebrow / kicker label */
+  .kicker {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  /* opt-in type faces (scoped per element, e.g. pricing section) */
+  .font-display-ko {
+    font-family: var(--font-display-ko), var(--font-serif), serif;
+  }
+  .font-latin {
+    font-family: var(--font-latin), var(--font-sans-stack);
+  }
+  /* editorial accent face (Hahmlet) — prices / highlighted titles */
+  .font-accent {
+    font-family: var(--font-accent), var(--font-display-ko), serif;
+    letter-spacing: -0.01em;
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* big editorial display scale — Pretendard (site default) */
+  .display {
+    font-family: var(--font-sans-stack);
+    font-weight: 800;
+    line-height: 0.98;
+    letter-spacing: -0.03em;
+  }
+
+  /* Korean serif headline override (e.g. pricing) — higher specificity wins */
+  .display.font-display-ko {
+    font-family: var(--font-display-ko), var(--font-serif), serif;
+    line-height: 1.06;
+    letter-spacing: -0.01em;
+  }
+
+  /* editorial accent headline override (Hahmlet) — pairs with .display sizing */
+  .display.font-accent {
+    font-family: var(--font-accent), var(--font-display-ko), serif;
+    line-height: 1.06;
+    letter-spacing: -0.01em;
+  }
+
+  /* keyword glint — the word stays ink, a soft ink-blue light sweeps across
+     it slowly, then rests. Premium "shimmer" without neon/flash. */
+  .shimmer {
+    background-image: linear-gradient(
+      100deg,
+      var(--ink) 0%,
+      var(--ink) 45%,
+      var(--brand) 50%,
+      var(--ink) 55%,
+      var(--ink) 100%
+    );
+    background-size: 250% 100%;
+    background-position: 150% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: text-shimmer 5s ease-in-out infinite;
+  }
+  @keyframes text-shimmer {
+    0% {
+      background-position: 150% 0;
+    }
+    45%,
+    100% {
+      background-position: -50% 0;
+    }
+  }
+
+  /* elegant high-contrast serif for large numerals (editorial contrast) */
+  .serif-num {
+    font-family: var(--font-serif), "Times New Roman", Georgia, serif;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* hairline divider that matches Wolverine's clean rules */
+  .rule {
+    border-color: var(--border);
+  }
+}
+
+/* ── Lenis smooth scroll (recommended baseline) ── */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: clip;
+}
+
+/* ── Custom cursor ── */
+.cursor-dot,
+.cursor-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 9999;
+  border-radius: 9999px;
+  mix-blend-mode: difference;
+  will-change: transform;
+}
+.cursor-dot {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: #fff;
+}
+.cursor-ring {
+  width: 38px;
+  height: 38px;
+  margin: -19px 0 0 -19px;
+  border: 1px solid #fff;
+  transition:
+    width 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    height 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    margin 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.28s ease;
+}
+.cursor-hover .cursor-ring {
+  width: 68px;
+  height: 68px;
+  margin: -34px 0 0 -34px;
+  background-color: rgba(255, 255, 255, 0.18);
+}
+@media (pointer: fine) {
+  html.has-cursor,
+  html.has-cursor * {
+    cursor: none !important;
+  }
+}
+
+/* ── Film grain texture ── */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Monochrome editorial grading for hero imagery ── */
+.img-graded {
+  filter: grayscale(1) contrast(1.08) brightness(0.92);
+}
+
+/* ── Typewriter caret (Korean IME-style typing) ── */
+.type-caret {
+  display: inline-block;
+  width: 1px;
+  height: 1.05em;
+  margin-left: 0.06em;
+  vertical-align: -0.16em;
+  background: currentColor;
+  animation: caret-blink 1.05s steps(1) infinite;
+}
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── Designed aurora glow (replaces flat stock backgrounds) ── */
+.aurora {
+  background-image:
+    radial-gradient(55% 65% at 50% -12%, rgba(37, 99, 235, 0.32), transparent 62%),
+    radial-gradient(48% 55% at 86% 102%, rgba(59, 130, 246, 0.22), transparent 60%),
+    radial-gradient(42% 52% at 8% 78%, rgba(79, 70, 229, 0.2), transparent 60%);
+  will-change: transform, opacity;
+}
+.aurora-drift {
+  animation: aurora-drift 16s ease-in-out infinite;
+}
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.04);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate3d(0, -2.5%, 0) scale(1.12);
+    opacity: 1;
+  }
+}
+
+/* ── Section-scoped film grain (absolute variant of .grain) ── */
+.grain-local {
+  pointer-events: none;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Marquee tracks (estimate-variable chips drift, idle motion) ── */
+.marquee-track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  will-change: transform;
+}
+.marquee-left {
+  animation: marquee-left 38s linear infinite;
+}
+.marquee-right {
+  animation: marquee-right 38s linear infinite;
+}
+.marquee-mask:hover .marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* ── Hero iso construction: blueprint outline draws (stroke-dashoffset with
+      pathLength=1), grid fades, blocks drop & stack with staggered delays,
+      the roof slab hovers forever. All timings wait for .iso-run (preloader
+      lifted). transform-box: fill-box keeps transforms per-group. ── */
+.iso-scene .iso-blk {
+  --iso-drop: -46px;
+  opacity: 0;
+  transform: translateY(var(--iso-drop));
+  transform-box: fill-box;
+}
+.iso-scene .iso-slab {
+  --iso-drop: -40px;
+}
+.iso-scene.iso-run .iso-blk {
+  animation: iso-drop 0.55s cubic-bezier(0.22, 0.9, 0.3, 1.12) forwards;
+  animation-delay: var(--d, 0s);
+}
+.iso-scene .iso-face {
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  fill: currentColor;
+  fill-opacity: 0;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.iso-scene.iso-run .iso-face {
+  animation:
+    iso-draw 0.5s ease-out forwards,
+    iso-fin 0.4s ease forwards;
+  animation-delay: var(--d, 0s), calc(var(--d, 0s) + 0.18s);
+}
+.iso-ft {
+  --fo: 0.06;
+}
+.iso-fr {
+  --fo: 0.12;
+}
+.iso-fl {
+  --fo: 0.2;
+}
+.iso-blue .iso-ft {
+  --fo: 0.2;
+}
+.iso-blue .iso-fr {
+  --fo: 0.4;
+}
+.iso-blue .iso-fl {
+  --fo: 0.55;
+}
+.iso-slab .iso-ft {
+  --fo: 0.09;
+}
+.iso-scene .iso-outline {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.3;
+  stroke-width: 1.2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.iso-scene.iso-run .iso-outline {
+  animation: iso-draw 0.85s ease 0.05s forwards;
+}
+.iso-scene .iso-grid {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.22;
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+  opacity: 0;
+}
+.iso-scene.iso-run .iso-grid {
+  animation: iso-fade 0.45s ease forwards;
+  animation-delay: var(--d, 0s);
+}
+.iso-scene .iso-dot {
+  fill: var(--ink);
+  opacity: 0;
+}
+.iso-scene.iso-run .iso-dot {
+  animation: iso-fade 0.6s ease forwards;
+  animation-delay: var(--d, 0s);
+}
+.iso-scene .iso-hover {
+  transform-box: fill-box;
+}
+.iso-scene.iso-run .iso-hover {
+  animation: iso-hover 2.4s ease-in-out 3s infinite alternate;
+}
+@keyframes iso-drop {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes iso-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes iso-fin {
+  to {
+    fill-opacity: var(--fo, 0.1);
+  }
+}
+@keyframes iso-fade {
+  to {
+    opacity: 0.6;
+  }
+}
+@keyframes iso-hover {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-7px);
+  }
+}
+
+/* ── Hero scroll cue: a hairline that slides down and loops ── */
+.scroll-cue {
+  animation: scroll-cue 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes scroll-cue {
+  0% {
+    transform: translateY(-100%);
+  }
+  55%,
+  100% {
+    transform: translateY(200%);
+  }
+}
+
+/* ── Entry preloader: hidden instantly for reduced-motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .preloader-overlay {
+    display: none !important;
+  }
+  /* no moving glint — keyword stays solid ink */
+  .shimmer {
+    animation: none !important;
+    -webkit-text-fill-color: var(--ink);
+    color: var(--ink);
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

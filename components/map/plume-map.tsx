@@ -178,9 +178,16 @@ export function PlumeMap(props: PlumeMapProps) {
       }
     });
 
+    // 컨테이너 크기 추적 — 초기 레이아웃 확정 전에 지도가 만들어지면
+    // 캔버스가 잘못된 크기로 고정된다(deck 오버레이 높이 0 증상). 명시적 resize.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(containerRef.current);
+    requestAnimationFrame(() => map.resize());
+
     mapRef.current = map;
     overlayRef.current = overlay;
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       overlayRef.current = null;
@@ -192,7 +199,9 @@ export function PlumeMap(props: PlumeMapProps) {
     overlayRef.current?.setProps({ layers: buildLayers(props) });
   });
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  // 인라인 style 고정 — maplibre-gl.css 의 `.maplibregl-map { position: relative }`
+  // 가 Tailwind `absolute` 를 덮어써 높이가 0으로 붕괴하는 문제 방지.
+  return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
 }
 
 export default PlumeMap;

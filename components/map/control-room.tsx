@@ -280,6 +280,18 @@ export function ControlRoom({ query }: { query?: string }) {
     ? readings.find((r) => r.id === selectedId) ?? null
     : null;
 
+  // F-SRCH-01 검색어 → 행정동 매칭 (지오코딩 API 없이 경계 데이터 이름 매칭 —
+  // 시범 지역(청주) 범위와 정합하고 오프라인 데모에서도 동작)
+  const matchedEmd = useMemo(() => {
+    if (!query || !emdGeo) return null;
+    const q = query.replace(/\s/g, "");
+    return (
+      emdGeo.features.find(
+        (f) => q.includes(f.properties.emd) || f.properties.emd.includes(q)
+      ) ?? null
+    );
+  }, [query, emdGeo]);
+
   // 행정동 위험도 — 각 읍면동 중심점의 정상상태 예측 농도로 등급 산정
   // (시간 슬라이더와 무관한 '이 시나리오의 영향권' 표시 — 채색 안정성)
   const riskByCode = useMemo(() => {
@@ -317,15 +329,35 @@ export function ControlRoom({ query }: { query?: string }) {
           확산 관제 <span className="font-data">MAP</span>
         </h1>
         <div className="ml-auto flex items-center gap-3">
-          {/* F-SRCH-01 검색 진입 인지 — 지오코딩 연동(P5) 전 안내 */}
-          {query && (
-            <span
-              className="hidden max-w-[18rem] truncate rounded-full border border-wind/40 bg-wind/10 px-3 py-1 text-xs text-wind md:block"
-              title={`"${query}" — 주소 정밀 조회(지오코딩)는 P5 연동 예정`}
-            >
-              “{query}” 주변 보기 · 정밀 조회 연동 예정
-            </span>
-          )}
+          {/* F-SRCH-01/02 검색 결과 — 매칭된 행정동의 위험 요약 */}
+          {query &&
+            (matchedEmd ? (
+              <span
+                className="hidden max-w-[22rem] items-center gap-2 truncate rounded-full border border-wind/40 bg-wind/10 px-3 py-1 text-xs md:flex"
+                title={`${matchedEmd.properties.gu} ${matchedEmd.properties.emd} — 현재 시나리오 기준 위험도`}
+              >
+                <span className="text-wind">{matchedEmd.properties.emd}</span>
+                <span
+                  className="font-semibold"
+                  style={{
+                    color:
+                      LEVEL_COLOR[
+                        riskByCode[matchedEmd.properties.adm_cd2] ?? "good"
+                      ],
+                  }}
+                >
+                  {LEVEL_META[riskByCode[matchedEmd.properties.adm_cd2] ?? "good"].symbol}{" "}
+                  {LEVEL_META[riskByCode[matchedEmd.properties.adm_cd2] ?? "good"].label}
+                </span>
+              </span>
+            ) : (
+              <span
+                className="hidden max-w-[18rem] truncate rounded-full border border-control-line px-3 py-1 text-xs text-control-muted md:block"
+                title={`"${query}" 를 찾지 못했습니다`}
+              >
+                “{query}” 미매칭 — 청주 읍면동 이름으로 검색
+              </span>
+            ))}
           <MapGuide />
           <span className="hidden rounded-full border border-control-line px-3 py-1 text-xs text-control-muted sm:block">
             시범 모드 · 시뮬레이션 데이터
@@ -494,6 +526,16 @@ export function ControlRoom({ query }: { query?: string }) {
               layers={layers}
               boundaries={emdGeo}
               riskByCode={riskByCode}
+              focus={
+                matchedEmd
+                  ? {
+                      lng: matchedEmd.properties.centroid[0],
+                      lat: matchedEmd.properties.centroid[1],
+                      key: matchedEmd.properties.adm_cd2,
+                    }
+                  : null
+              }
+              highlightCode={matchedEmd?.properties.adm_cd2 ?? null}
               onTileError={onTileError}
             />
 

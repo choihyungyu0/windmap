@@ -60,6 +60,10 @@ export interface PlumeMapProps {
   boundaries: EmdGeoJson | null;
   /** adm_cd2 → 위험 등급 (배출원 확산 예측 기반 행정동 채색) */
   riskByCode: Record<string, AlertLevel>;
+  /** 지역 검색(F-SRCH-01) — 매칭된 행정동으로 카메라 이동 */
+  focus: { lng: number; lat: number; key: string } | null;
+  /** 매칭된 행정동 경계 강조 */
+  highlightCode: string | null;
   onTileError: () => void;
 }
 
@@ -87,10 +91,18 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         filled: true,
         getFillColor: (f: { properties?: { adm_cd2?: string } }) =>
           RISK_FILL[p.riskByCode[f.properties?.adm_cd2 ?? ""] ?? "good"],
-        getLineColor: [125, 180, 220, 55],
-        getLineWidth: 1,
+        getLineColor: (f: { properties?: { adm_cd2?: string } }) =>
+          f.properties?.adm_cd2 === p.highlightCode
+            ? ([0, 184, 212, 230] as [number, number, number, number])
+            : ([125, 180, 220, 55] as [number, number, number, number]),
+        getLineWidth: (f: { properties?: { adm_cd2?: string } }) =>
+          f.properties?.adm_cd2 === p.highlightCode ? 2.5 : 1,
         lineWidthUnits: "pixels",
-        updateTriggers: { getFillColor: riskKey },
+        updateTriggers: {
+          getFillColor: riskKey,
+          getLineColor: p.highlightCode,
+          getLineWidth: p.highlightCode,
+        },
       })
     );
   }
@@ -264,6 +276,18 @@ export function PlumeMap(props: PlumeMapProps) {
   useEffect(() => {
     overlayRef.current?.setProps({ layers: buildLayers(props) });
   });
+
+  // 검색 매칭 행정동으로 카메라 이동 (F-SRCH-01)
+  const focusKey = props.focus?.key ?? null;
+  useEffect(() => {
+    if (!focusKey || !props.focus) return;
+    mapRef.current?.flyTo({
+      center: [props.focus.lng, props.focus.lat],
+      zoom: 12.2,
+      duration: 1400,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
 
   // 인라인 style 고정 — maplibre-gl.css 의 `.maplibregl-map { position: relative }`
   // 가 Tailwind `absolute` 를 덮어써 높이가 0으로 붕괴하는 문제 방지.

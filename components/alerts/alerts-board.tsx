@@ -27,8 +27,47 @@ const LEVEL_BADGE: Record<AlertLevel, string> = {
 
 type Filter = "all" | AlertLevel;
 
+interface AdvisoryState {
+  loading?: boolean;
+  text?: string;
+  source?: "ai" | "template";
+}
+
 export function AlertsBoard() {
   const [filter, setFilter] = useState<Filter>("all");
+  // F-ALT-03 — 시설별 맞춤 권고문 (LLM, 실패 시 템플릿 폴백)
+  const [advisories, setAdvisories] = useState<Record<string, AdvisoryState>>({});
+
+  async function generateAdvisory(a: {
+    id: string;
+    name: string;
+    type: string;
+    level: string;
+    conc: number;
+    etaMin: number | null;
+  }) {
+    setAdvisories((s) => ({ ...s, [a.id]: { loading: true } }));
+    try {
+      const res = await fetch("/api/advisory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: a.name,
+          type: a.type,
+          level: a.level,
+          conc: Math.round(a.conc * 10) / 10,
+          etaMin: a.etaMin,
+        }),
+      });
+      const d = (await res.json()) as { ok: boolean; source?: "ai" | "template"; text?: string };
+      setAdvisories((s) => ({
+        ...s,
+        [a.id]: d.ok && d.text ? { text: d.text, source: d.source } : {},
+      }));
+    } catch {
+      setAdvisories((s) => ({ ...s, [a.id]: {} }));
+    }
+  }
 
   const alerts = useMemo(() => {
     const p = { ...defaultScenario, h: source.stackHeight };
@@ -130,6 +169,38 @@ export function AlertsBoard() {
                 <p className="mt-4 rounded-md bg-muted px-4 py-3 text-sm leading-relaxed">
                   {meta.advice}
                 </p>
+
+                {/* F-ALT-03 맞춤 권고문 */}
+                {advisories[a.id]?.text ? (
+                  <div className="mt-3 rounded-md border border-brand/30 bg-brand/5 px-4 py-3">
+                    <p className="text-sm leading-relaxed">{advisories[a.id].text}</p>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      {advisories[a.id].source === "ai"
+                        ? "AI 생성 문안 — 발송 전 담당자 검토 필요"
+                        : "표준 템플릿 문안 (AI 미연결 시 폴백)"}
+                    </p>
+                  </div>
+                ) : (
+                  a.level !== "good" && (
+                    <button
+                      type="button"
+                      disabled={advisories[a.id]?.loading}
+                      onClick={() =>
+                        generateAdvisory({
+                          id: a.id,
+                          name: a.name,
+                          type: a.type,
+                          level: a.level,
+                          conc: a.conc,
+                          etaMin: a.etaMin,
+                        })
+                      }
+                      className="mt-3 rounded-full border border-border px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-brand/50 hover:text-brand disabled:opacity-50"
+                    >
+                      {advisories[a.id]?.loading ? "생성 중…" : "시설 맞춤 권고문 생성"}
+                    </button>
+                  )
+                )}
               </li>
             );
           })}

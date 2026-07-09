@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { ControlRoom } from "@/components/map/control-room";
 
 export const metadata: Metadata = {

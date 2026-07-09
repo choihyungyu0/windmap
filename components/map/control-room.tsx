@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   useCallback,
   useEffect,
@@ -11,7 +12,9 @@ import {
 } from "react";
 import { LogoMark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
-import { computeGrid, concentrationAt, type Stability } from "@/lib/plume";
+import { renderPlumeCanvas } from "@/components/map/plume-render";
+import { concentrationAt, type Stability } from "@/lib/plume";
+import { offsetToLngLat } from "@/lib/geo";
 import {
   defaultScenario,
   gradeOf,
@@ -21,9 +24,22 @@ import {
   type AlertLevel,
 } from "@/lib/mock";
 
+// MapLibre는 브라우저 전용 — SSR 제외
+const PlumeMap = dynamic(
+  () => import("./plume-map").then((m) => m.PlumeMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="absolute inset-0 flex items-center justify-center text-sm text-control-muted">
+        지도 불러오는 중…
+      </div>
+    ),
+  }
+);
+
 /* ── 상수 ── */
-const GRID = 160; // 계산 격자 (한 변)
-const HALF_EXTENT = 3000; // 배출원~가장자리 거리(m) → 화면 한 변 6km
+const GRID = 160; // 플룸 래스터 격자 (한 변)
+const HALF_EXTENT = 3000; // 배출원~가장자리 거리(m) → 래스터 한 변 6km
 const STABILITY_LABEL: Record<Stability, string> = {
   A: "A · 매우 불안정",
   B: "B · 불안정",
@@ -38,35 +54,6 @@ const LEVEL_COLOR: Record<AlertLevel, string> = {
   warn: "var(--alert-warn)",
   severe: "var(--alert-severe)",
 };
-
-/** 농도(μg/m³) → RGBA. 경보 임계값과 같은 축으로 색을 매긴다(범례 일치). */
-function colorFor(c: number): [number, number, number, number] {
-  if (c < 1) return [0, 0, 0, 0];
-  // 구간 보간: 시안(저) → 호박(주의) → 주황(경계) → 적(심각)
-  const stops: [number, [number, number, number]][] = [
-    [0, [0, 184, 212]],
-    [40, [0, 184, 212]],
-    [90, [217, 119, 6]],
-    [180, [234, 88, 12]],
-    [360, [220, 38, 38]],
-  ];
-  let rgb: [number, number, number] = stops[stops.length - 1][1];
-  for (let i = 1; i < stops.length; i++) {
-    if (c <= stops[i][0]) {
-      const [c0, rgb0] = stops[i - 1];
-      const [c1, rgb1] = stops[i];
-      const t = (c - c0) / (c1 - c0);
-      rgb = [
-        rgb0[0] + (rgb1[0] - rgb0[0]) * t,
-        rgb0[1] + (rgb1[1] - rgb0[1]) * t,
-        rgb0[2] + (rgb1[2] - rgb0[2]) * t,
-      ];
-      break;
-    }
-  }
-  const alpha = Math.min(0.85, 0.12 + (c / 40) * 0.35);
-  return [rgb[0], rgb[1], rgb[2], Math.round(alpha * 255)];
-}
 
 /** 풍향(도) → 8방위 한글 */
 function windName(wd: number): string {
@@ -110,7 +97,6 @@ function WindDial({ wd, onChange }: { wd: number; onChange: (v: number) => void 
         aria-hidden
       >
         <circle cx="60" cy="60" r="52" fill="var(--control-surface)" stroke="var(--control-line)" />
-        {/* 방위 눈금 */}
         {/* 좌표는 소수 2자리로 고정 — SSR/클라이언트 부동소수점 차이로 인한
             hydration 불일치 방지 */}
         {Array.from({ length: 24 }, (_, i) => {
@@ -208,11 +194,11 @@ export function ControlRoom({ query }: { query?: string }) {
   const [u, setU] = useState(defaultScenario.u);
   const [wd, setWd] = useState(defaultScenario.wd);
   const [stability, setStability] = useState<Stability>(defaultScenario.stability);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [clock, setClock] = useState<string | null>(null);
   // F-MAP-04 레이어 토글 / F-MAP-03 수용지점 상세
   const [layers, setLayers] = useState({ plume: true, facilities: true, rings: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tilesError, setTilesError] = useState(false);
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
@@ -226,31 +212,16 @@ export function ControlRoom({ query }: { query?: string }) {
     [q, u, wd, stability]
   );
 
-  // 농도장 → 캔버스 (입력 변경 즉시 재계산: F-MAP-02)
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const { data } = computeGrid(params, GRID, HALF_EXTENT);
-    const img = new ImageData(GRID, GRID);
-    for (let i = 0; i < data.length; i++) {
-      const [r, g, b, a] = colorFor(data[i]);
-      img.data[i * 4] = r;
-      img.data[i * 4 + 1] = g;
-      img.data[i * 4 + 2] = b;
-      img.data[i * 4 + 3] = a;
-    }
-    const off = document.createElement("canvas");
-    off.width = GRID;
-    off.height = GRID;
-    off.getContext("2d")!.putImageData(img, 0, 0);
-    const ctx = canvas.getContext("2d")!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
-  }, [params]);
+  // 플룸 래스터 — 입력 변경 즉시 재계산 (F-MAP-02), 지도에 BitmapLayer로 오버레이
+  const plumeCanvas = useMemo(
+    () =>
+      typeof document === "undefined"
+        ? null
+        : renderPlumeCanvas(params, GRID, HALF_EXTENT),
+    [params]
+  );
 
-  // 수용지점별 도달 농도·근사 도달시각 (라이브)
+  // 수용지점별 도달 농도·근사 도달시각 (라이브) + 경위도
   const readings = useMemo(() => {
     const bearing = ((params.wd + 180) % 360) * (Math.PI / 180);
     return receptors
@@ -261,7 +232,8 @@ export function ControlRoom({ query }: { query?: string }) {
           downwind > 0
             ? Math.round(downwind / Math.max(params.u, 0.5) / 60)
             : null;
-        return { ...r, conc, level: gradeOf(conc), downwind, etaMin };
+        const [lng, lat] = offsetToLngLat(r.ex, r.ny);
+        return { ...r, conc, level: gradeOf(conc), downwind, etaMin, lng, lat };
       })
       .sort((a, b) => b.conc - a.conc);
   }, [params]);
@@ -269,6 +241,9 @@ export function ControlRoom({ query }: { query?: string }) {
   const selected = selectedId
     ? readings.find((r) => r.id === selectedId) ?? null
     : null;
+
+  const onSelect = useCallback((id: string | null) => setSelectedId(id), []);
+  const onTileError = useCallback(() => setTilesError(true), []);
 
   return (
     <div className="min-h-screen bg-control-bg text-control-text">
@@ -378,92 +353,32 @@ export function ControlRoom({ query }: { query?: string }) {
           </dl>
         </section>
 
-        {/* ── 중앙: 확산 지도 (F-MAP-01) ── */}
+        {/* ── 중앙: 확산 지도 (F-MAP-01 · 실지도) ── */}
         <section aria-label="확산 지도" className="relative">
           <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-control-line bg-[#081420]">
-            {/* 배경 격자 */}
-            <svg className="absolute inset-0 h-full w-full" aria-hidden>
-              <defs>
-                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                  <path d="M40 0H0V40" fill="none" stroke="var(--control-line)" strokeWidth="0.5" />
-                </pattern>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grid)" />
-            </svg>
-
-            {/* 플룸 히트맵 (레이어 토글 시 숨김 — 마운트 유지로 재계산 회피) */}
-            <canvas
-              ref={canvasRef}
-              width={640}
-              height={640}
-              className="absolute inset-0 h-full w-full transition-opacity"
-              style={{ opacity: layers.plume ? 1 : 0 }}
+            <PlumeMap
+              plumeCanvas={plumeCanvas}
+              halfExtent={HALF_EXTENT}
+              readings={readings}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              layers={layers}
+              onTileError={onTileError}
             />
 
-            {/* 거리 링 + 방위 */}
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden>
-              {layers.rings && (
-                <>
-                  {[1, 2].map((km) => (
-                    <circle
-                      key={km}
-                      cx="50" cy="50" r={(km * 2000 / (HALF_EXTENT * 2)) * 100}
-                      fill="none" stroke="var(--control-line)" strokeDasharray="1.5 2"
-                    />
-                  ))}
-                  <text x="50" y={50 - (2000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">2km</text>
-                  <text x="50" y={50 - (4000 / 6000) * 100 - 1.5} textAnchor="middle" fontSize="2.6" fill="var(--control-muted)">4km</text>
-                </>
-              )}
-              <text x="50" y="5" textAnchor="middle" fontSize="3.2" fill="var(--control-muted)">N</text>
-            </svg>
-
-            {/* 배출원 마커 */}
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-              <span className="relative flex h-3.5 w-3.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-wind opacity-40" />
-                <span className="relative inline-flex h-3.5 w-3.5 rounded-full border-2 border-wind bg-control-bg" />
-              </span>
-            </div>
-
-            {/* 수용지점 마커 — 클릭 시 상세 (F-MAP-03) */}
-            {layers.facilities &&
-              readings.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedId((cur) => (cur === r.id ? null : r.id))
-                  }
-                  aria-label={`${r.name} 상세 보기`}
-                  aria-pressed={selectedId === r.id}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                  style={{
-                    left: `${((r.ex + HALF_EXTENT) / (HALF_EXTENT * 2)) * 100}%`,
-                    top: `${((HALF_EXTENT - r.ny) / (HALF_EXTENT * 2)) * 100}%`,
-                  }}
-                >
-                  <span
-                    className={
-                      "block h-2.5 w-2.5 rounded-sm border transition-transform " +
-                      (selectedId === r.id
-                        ? "scale-150 border-white"
-                        : "border-white/50 hover:scale-125")
-                    }
-                    style={{ background: LEVEL_COLOR[r.level] }}
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] text-control-muted">
-                    {r.name}
-                  </span>
-                </button>
-              ))}
+            {/* 배경지도 로드 실패 안내 (오프라인 등) — 플룸 계산은 계속 동작 */}
+            {tilesError && (
+              <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-alert-watch/50 bg-control-bg/90 px-4 py-1.5 text-xs text-alert-watch backdrop-blur">
+                배경지도 타일을 불러오지 못했습니다 — 네트워크 확인 (확산 계산은 정상)
+              </div>
+            )}
 
             {/* 수용지점 상세 패널 (F-MAP-03) */}
             {selected && (
               <div
                 role="dialog"
                 aria-label={`${selected.name} 상세`}
-                className="absolute right-3 top-3 w-64 rounded-lg border border-control-line bg-control-bg/90 p-4 backdrop-blur"
+                className="absolute right-3 top-3 z-10 w-64 rounded-lg border border-control-line bg-control-bg/90 p-4 backdrop-blur"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -523,7 +438,7 @@ export function ControlRoom({ query }: { query?: string }) {
             )}
 
             {/* 범례 */}
-            <div className="absolute bottom-3 left-3 rounded-md border border-control-line bg-control-bg/85 px-3 py-2 backdrop-blur">
+            <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-md border border-control-line bg-control-bg/85 px-3 py-2 backdrop-blur">
               <div
                 className="h-1.5 w-44 rounded-full"
                 style={{
@@ -538,8 +453,10 @@ export function ControlRoom({ query }: { query?: string }) {
           </div>
 
           <p className="mt-2 text-xs text-control-muted">
-            가우시안 플룸(B1a) 실시간 계산 — 지형·배경지도(P4)와 퍼프 도달시각(P3)은 연동 예정.
-            수치는 시뮬레이션이며 실측이 아닙니다.
+            가우시안 플룸(B1a) 실시간 계산 · 배경지도 © CARTO / OpenStreetMap.
+            수치는 시뮬레이션이며 실측이 아닙니다. 배출원·시설 위치는 데모용
+            예시 좌표로, 실존 특정 시설을 지칭하지 않습니다. 퍼프 도달시각(P3)
+            연동 예정.
           </p>
         </section>
 
@@ -553,32 +470,43 @@ export function ControlRoom({ query }: { query?: string }) {
             {readings.map((r) => {
               const meta = LEVEL_META[r.level];
               return (
-                <li
-                  key={r.id}
-                  className="rounded-md border border-control-line bg-control-bg/50 px-3.5 py-3"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">{r.name}</span>
-                    <span
-                      className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-                      style={{ background: LEVEL_COLOR[r.level] }}
-                    >
-                      <span aria-hidden>{meta.symbol}</span>
-                      {meta.label}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline justify-between">
-                    <span className="text-xs text-control-muted">{r.type}</span>
-                    <span className="font-data text-sm">
-                      {r.conc < 0.1 ? "< 0.1" : r.conc.toFixed(1)}
-                      <span className="ml-1 text-[10px] text-control-muted">μg/m³</span>
-                    </span>
-                  </div>
-                  {r.level !== "good" && (
-                    <p className="mt-1.5 text-xs leading-relaxed text-control-muted">
-                      {meta.advice}
-                    </p>
-                  )}
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedId((cur) => (cur === r.id ? null : r.id))
+                    }
+                    aria-pressed={selectedId === r.id}
+                    className={
+                      "w-full rounded-md border bg-control-bg/50 px-3.5 py-3 text-left transition-colors " +
+                      (selectedId === r.id
+                        ? "border-wind/60"
+                        : "border-control-line hover:border-wind/30")
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{r.name}</span>
+                      <span
+                        className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold text-white"
+                        style={{ background: LEVEL_COLOR[r.level] }}
+                      >
+                        <span aria-hidden>{meta.symbol}</span>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-baseline justify-between">
+                      <span className="text-xs text-control-muted">{r.type}</span>
+                      <span className="font-data text-sm">
+                        {r.conc < 0.1 ? "< 0.1" : r.conc.toFixed(1)}
+                        <span className="ml-1 text-[10px] text-control-muted">μg/m³</span>
+                      </span>
+                    </div>
+                    {r.level !== "good" && (
+                      <p className="mt-1.5 text-xs leading-relaxed text-control-muted">
+                        {meta.advice}
+                      </p>
+                    )}
+                  </button>
                 </li>
               );
             })}

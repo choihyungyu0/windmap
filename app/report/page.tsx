@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { readFile } from "fs/promises";
+import path from "path";
 import { Navbar } from "@/components/site/navbar";
 import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
@@ -31,6 +33,32 @@ const METHODS = [
   },
 ] as const;
 
+// engine 애블레이션 배치 결과 — 요청 시점에 파일 조회 (없으면 예시 수치 폴백)
+export const dynamic = "force-dynamic";
+
+interface ValidationReport {
+  kind: string;
+  caveat: string;
+  hours: number;
+  trainHours: number;
+  testHours: number;
+  metric: string;
+  ladder: { id: string; name: string; rmse: number; mae: number; r: number; note: string }[];
+  improvementPct: number;
+  bootstrap: { median: number; ci95: [number, number]; pLeqZero: number; note: string };
+  deltaMethods: { corrAB: number; corrBTrue: number };
+  model: string;
+}
+
+async function readValidation(): Promise<ValidationReport | null> {
+  try {
+    const p = path.join(process.cwd(), "public", "data", "validation-report.json");
+    return JSON.parse(await readFile(p, "utf-8")) as ValidationReport;
+  } catch {
+    return null;
+  }
+}
+
 const METRICS = [
   ["RMSE", "예측-실측 오차 크기 (메인 지표)"],
   ["MAE", "평균 절대 오차 — 이상치 영향 확인"],
@@ -39,11 +67,16 @@ const METRICS = [
   ["경보 F1", "위험 경보의 정밀도·재현율 — 실용성 증명"],
 ] as const;
 
-export default function ReportPage() {
-  const maxRmse = Math.max(...ablationExample.ladder.map((s) => s.rmse));
-  const b1b = ablationExample.ladder.find((s) => s.id === "B1b")!;
-  const b2 = ablationExample.ladder.find((s) => s.id === "B2")!;
-  const improvement = Math.round(((b1b.rmse - b2.rmse) / b1b.rmse) * 100);
+export default async function ReportPage() {
+  const real = await readValidation();
+  const ladder = real?.ladder ?? ablationExample.ladder;
+  const metric = real?.metric ?? ablationExample.metric;
+  const caveat = real?.caveat ?? ablationExample.caveat;
+  const maxRmse = Math.max(...ladder.map((s) => s.rmse));
+  const b1b = ladder.find((s) => s.id === "B1b")!;
+  const b2 = ladder.find((s) => s.id === "B2")!;
+  const improvement =
+    real?.improvementPct ?? Math.round(((b1b.rmse - b2.rmse) / b1b.rmse) * 100);
 
   return (
     <>
@@ -63,15 +96,15 @@ export default function ReportPage() {
               <div className="flex flex-wrap items-baseline justify-between gap-3">
                 <h3 className="font-bold">
                   베이스라인 사다리 —{" "}
-                  <span className="text-muted-foreground">{ablationExample.metric}</span>
+                  <span className="text-muted-foreground">{metric}</span>
                 </h3>
                 <span className="rounded-full border border-alert-watch/50 bg-alert-watch/10 px-3 py-1 text-xs font-medium text-alert-watch">
-                  {ablationExample.caveat}
+                  {caveat}
                 </span>
               </div>
 
               <ul className="mt-8 flex flex-col gap-5">
-                {ablationExample.ladder.map((s) => {
+                {ladder.map((s) => {
                   const isOurs = s.id === "B2";
                   return (
                     <li key={s.id}>
@@ -95,12 +128,25 @@ export default function ReportPage() {
               </ul>
 
               <p className="mt-8 border-t border-border pt-6 text-sm leading-relaxed">
-                핵심 비교는 <strong className="font-data">B1b → B2</strong>: 보정 AI 적용 시 오차{" "}
+                핵심 비교는 <strong className="font-data">B1b → B2</strong>: 보정 모델 적용 시 오차{" "}
                 <strong className="font-data">{improvement}%</strong> 감소
-                <span className="text-muted-foreground">
-                  {" "}(예시). 개선의 통계적 유의성은 대응표본 검정으로 확인하며 목표는{" "}
-                  <span className="font-data">p&lt;0.01</span> — 효과크기·신뢰구간을 함께 보고합니다.
-                </span>
+                {real ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    (검증 {real.testHours}시간 · 학습 {real.trainHours}시간, 시간 분리).
+                    블록 부트스트랩 95% CI{" "}
+                    <span className="font-data">
+                      [{real.bootstrap.ci95[0]}%, {real.bootstrap.ci95[1]}%]
+                    </span>{" "}
+                    — {real.bootstrap.note}. Δ분리 교차확인: 방법 A·B 상관{" "}
+                    <span className="font-data">{real.deltaMethods.corrAB}</span>.
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {" "}(예시). 개선의 통계적 유의성은 대응표본 검정으로 확인하며 목표는{" "}
+                    <span className="font-data">p&lt;0.01</span> — 효과크기·신뢰구간을 함께 보고합니다.
+                  </span>
+                )}
               </p>
             </div>
           </Reveal>

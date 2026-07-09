@@ -42,3 +42,5 @@ next-env.d.ts
 # engine 생성물 (DB·상태 스냅샷은 커밋하지 않음 — P8에서 데모 스냅샷만 고정)
 engine/*.sqlite
 /public/data/pipeline-status.json
+__pycache__/
+*.pyc

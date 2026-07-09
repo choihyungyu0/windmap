@@ -206,6 +206,7 @@ export function ControlRoom({ query }: { query?: string }) {
     facilities: true,
     rings: true,
     boundaries: true,
+    wind: true,
   });
   // 청주 읍면동 경계 (통계청 행정동 기반 공개 GeoJSON — 1회 로드)
   const [emdGeo, setEmdGeo] = useState<EmdGeoJson | null>(null);
@@ -478,6 +479,7 @@ export function ControlRoom({ query }: { query?: string }) {
               {(
                 [
                   ["plume", "플룸 (농도장)"],
+                  ["wind", "바람 흐름"],
                   ["facilities", "취약시설"],
                   ["boundaries", "행정동 위험도"],
                   ["rings", "거리 링"],
@@ -536,6 +538,8 @@ export function ControlRoom({ query }: { query?: string }) {
                   : null
               }
               highlightCode={matchedEmd?.properties.adm_cd2 ?? null}
+              wind={{ wd: params.wd, ws: params.u }}
+              showWind={layers.wind}
               onTileError={onTileError}
             />
 

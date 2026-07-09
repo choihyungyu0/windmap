@@ -64,6 +64,9 @@ export interface PlumeMapProps {
   focus: { lng: number; lat: number; key: string } | null;
   /** 매칭된 행정동 경계 강조 */
   highlightCode: string | null;
+  /** 바람 흐름선 오버레이 — 현재 조작값과 실시간 동기 */
+  wind: { wd: number; ws: number };
+  showWind: boolean;
   onTileError: () => void;
 }
 
@@ -277,6 +280,82 @@ export function PlumeMap(props: PlumeMapProps) {
     overlayRef.current?.setProps({ layers: buildLayers(props) });
   });
 
+  // 바람 흐름선 — 2D 캔버스 파티클 이류. 데모 바람장은 공간 균일(조작값)이라
+  // GPU 격자 방식(webgl-wind) 대신 경량 구현으로 동일한 시각 효과를 낸다.
+  // 풍향 다이얼과 실시간 동기 + 지도 회전(bearing) 반영.
+  const windCanvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = windCanvasRef.current;
+    if (!canvas || !props.showWind) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const ctx = canvas.getContext("2d")!;
+    const fit = () => {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(canvas);
+
+    const N = 160;
+    const parts = Array.from({ length: N }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      life: Math.random() * 120,
+    }));
+
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      const { wd, ws } = propsRef.current.wind;
+      const bearing = mapRef.current?.getBearing() ?? 0;
+      // 화면상 이동 방위 = 플룸 진행 방위(wd+180) − 지도 회전
+      const dir = (((wd + 180 - bearing) % 360) * Math.PI) / 180;
+      const speed = 26 + ws * 9; // px/s
+      const vx = Math.sin(dir) * speed;
+      const vy = -Math.cos(dir) * speed;
+
+      // 잔상 페이드 → 흐름선 효과
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,0.07)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "rgba(0,184,212,0.55)";
+      ctx.lineWidth = 1.1;
+      ctx.lineCap = "round";
+
+      for (const p of parts) {
+        const nx = p.x + vx * dt;
+        const ny = p.y + vy * dt;
+        p.life -= dt * 60;
+        const out = nx < 0 || nx > canvas.width || ny < 0 || ny > canvas.height;
+        if (out || p.life <= 0) {
+          p.x = Math.random() * canvas.width;
+          p.y = Math.random() * canvas.height;
+          p.life = 60 + Math.random() * 120;
+          continue;
+        }
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+        p.x = nx;
+        p.y = ny;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  }, [props.showWind]);
+
   // 검색 매칭 행정동으로 카메라 이동 (F-SRCH-01)
   const focusKey = props.focus?.key ?? null;
   useEffect(() => {
@@ -291,7 +370,18 @@ export function PlumeMap(props: PlumeMapProps) {
 
   // 인라인 style 고정 — maplibre-gl.css 의 `.maplibregl-map { position: relative }`
   // 가 Tailwind `absolute` 를 덮어써 높이가 0으로 붕괴하는 문제 방지.
-  return <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />;
+  return (
+    <>
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+      {props.showWind && (
+        <canvas
+          ref={windCanvasRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
+      )}
+    </>
+  );
 }
 
 export default PlumeMap;

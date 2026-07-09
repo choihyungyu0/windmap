@@ -21,6 +21,7 @@ export const nav = [
   { label: "사각지대 대기질", href: "/air" },
   { label: "성능 검증", href: "/report" },
   { label: "서비스 소개", href: "/about" },
+  { label: "관리자", href: "/admin" },
 ] as const;
 
 export const footer = {

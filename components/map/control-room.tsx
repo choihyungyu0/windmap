@@ -18,7 +18,8 @@ import {
 } from "@/components/map/plume-render";
 import { concentrationAt, type Stability } from "@/lib/plume";
 import { arrivalSeconds, puffConcentrationAt } from "@/lib/puff";
-import { offsetToLngLat } from "@/lib/geo";
+import { lngLatToOffset, offsetToLngLat } from "@/lib/geo";
+import type { EmdGeoJson } from "./plume-map";
 import {
   defaultScenario,
   gradeOf,
@@ -200,7 +201,20 @@ export function ControlRoom({ query }: { query?: string }) {
   const [stability, setStability] = useState<Stability>(defaultScenario.stability);
   const [clock, setClock] = useState<string | null>(null);
   // F-MAP-04 레이어 토글 / F-MAP-03 수용지점 상세
-  const [layers, setLayers] = useState({ plume: true, facilities: true, rings: true });
+  const [layers, setLayers] = useState({
+    plume: true,
+    facilities: true,
+    rings: true,
+    boundaries: true,
+  });
+  // 청주 읍면동 경계 (통계청 행정동 기반 공개 GeoJSON — 1회 로드)
+  const [emdGeo, setEmdGeo] = useState<EmdGeoJson | null>(null);
+  useEffect(() => {
+    fetch("/data/cheongju_emd.geojson")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setEmdGeo)
+      .catch(() => setEmdGeo(null));
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tilesError, setTilesError] = useState(false);
   // B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02 · F-MAP-01 시간슬라이더)
@@ -265,6 +279,24 @@ export function ControlRoom({ query }: { query?: string }) {
   const selected = selectedId
     ? readings.find((r) => r.id === selectedId) ?? null
     : null;
+
+  // 행정동 위험도 — 각 읍면동 중심점의 정상상태 예측 농도로 등급 산정
+  // (시간 슬라이더와 무관한 '이 시나리오의 영향권' 표시 — 채색 안정성)
+  const riskByCode = useMemo(() => {
+    const out: Record<string, ReturnType<typeof gradeOf>> = {};
+    if (!emdGeo) return out;
+    for (const f of emdGeo.features) {
+      const [lng, lat] = f.properties.centroid;
+      const [ex, ny] = lngLatToOffset(lng, lat);
+      // 관심 반경 밖(>8km)은 계산 생략 — 항상 good
+      if (Math.abs(ex) > 8000 || Math.abs(ny) > 8000) {
+        out[f.properties.adm_cd2] = "good";
+        continue;
+      }
+      out[f.properties.adm_cd2] = gradeOf(concentrationAt(ex, ny, params));
+    }
+    return out;
+  }, [emdGeo, params]);
 
   const onSelect = useCallback((id: string | null) => setSelectedId(id), []);
   const onTileError = useCallback(() => setTilesError(true), []);
@@ -415,6 +447,7 @@ export function ControlRoom({ query }: { query?: string }) {
                 [
                   ["plume", "플룸 (농도장)"],
                   ["facilities", "취약시설"],
+                  ["boundaries", "행정동 위험도"],
                   ["rings", "거리 링"],
                 ] as const
               ).map(([key, label]) => (
@@ -459,6 +492,8 @@ export function ControlRoom({ query }: { query?: string }) {
               selectedId={selectedId}
               onSelect={onSelect}
               layers={layers}
+              boundaries={emdGeo}
+              riskByCode={riskByCode}
               onTileError={onTileError}
             />
 
@@ -556,9 +591,10 @@ export function ControlRoom({ query }: { query?: string }) {
             {mode === "puff"
               ? `가우시안 퍼프(B1b) 시간 전파 — 방출 후 T+${tMin}분 시점의 농도장 · 자체 구현.`
               : "가우시안 플룸(B1a) 정상상태 실시간 계산."}{" "}
-            배경지도 © CARTO / OpenStreetMap. 수치는 시뮬레이션이며 실측이
-            아닙니다. 배출원·시설 위치는 데모용 예시 좌표로, 실존 특정 시설을
-            지칭하지 않습니다.
+            배경지도 © CARTO / OpenStreetMap · 행정동 경계: 통계청 행정동
+            기반 공개 데이터. 수치는 시뮬레이션이며 실측이 아닙니다.
+            배출원·시설 위치는 데모용 예시 좌표로, 실존 특정 시설을 지칭하지
+            않습니다.
           </p>
         </section>
 

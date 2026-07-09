@@ -23,6 +23,16 @@ export function offsetToLngLat(ex: number, ny: number): [number, number] {
   return [lng, lat];
 }
 
+/** [경도, 위도] → 배출원 기준 미터 오프셋 (동 ex, 북 ny) — offsetToLngLat 역변환 */
+export function lngLatToOffset(lng: number, lat: number): [number, number] {
+  const ny = (lat - SOURCE_LL.lat) * M_PER_DEG_LAT;
+  const ex =
+    (lng - SOURCE_LL.lng) *
+    M_PER_DEG_LAT *
+    Math.cos((SOURCE_LL.lat * Math.PI) / 180);
+  return [ex, ny];
+}
+
 /** 배출원 중심 반지름 r(m) 원 경로 (지도 거리 링용) */
 export function circlePath(radiusM: number, segments = 72): [number, number][] {
   const pts: [number, number][] = [];

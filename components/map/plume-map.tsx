@@ -6,6 +6,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { Layer, PickingInfo } from "@deck.gl/core";
 import {
   BitmapLayer,
+  GeoJsonLayer,
   PathLayer,
   ScatterplotLayer,
   TextLayer,
@@ -39,18 +40,60 @@ export interface MapReading {
   level: AlertLevel;
 }
 
+/** 읍면동 경계 GeoJSON (properties: emd·adm_cd2·centroid) */
+export type EmdGeoJson = {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    properties: { emd: string; gu: string; adm_cd2: string; centroid: [number, number] };
+    geometry: object;
+  }[];
+};
+
 export interface PlumeMapProps {
   plumeCanvas: HTMLCanvasElement | null;
   halfExtent: number;
   readings: MapReading[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  layers: { plume: boolean; facilities: boolean; rings: boolean };
+  layers: { plume: boolean; facilities: boolean; rings: boolean; boundaries: boolean };
+  boundaries: EmdGeoJson | null;
+  /** adm_cd2 → 위험 등급 (배출원 확산 예측 기반 행정동 채색) */
+  riskByCode: Record<string, AlertLevel>;
   onTileError: () => void;
 }
 
+const RISK_FILL: Record<AlertLevel, [number, number, number, number]> = {
+  good: [13, 148, 136, 14],
+  watch: [217, 119, 6, 70],
+  warn: [234, 88, 12, 95],
+  severe: [220, 38, 38, 115],
+};
+
 function buildLayers(p: PlumeMapProps): Layer[] {
   const out: Layer[] = [];
+
+  // 행정동 위험도 코로플레스 — 맨 아래 계층 (플룸·마커가 위에 겹침)
+  if (p.layers.boundaries && p.boundaries) {
+    const riskKey = Object.entries(p.riskByCode)
+      .map(([k, v]) => k + v)
+      .join();
+    out.push(
+      new GeoJsonLayer({
+        id: "emd-boundaries",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: p.boundaries as any,
+        stroked: true,
+        filled: true,
+        getFillColor: (f: { properties?: { adm_cd2?: string } }) =>
+          RISK_FILL[p.riskByCode[f.properties?.adm_cd2 ?? ""] ?? "good"],
+        getLineColor: [125, 180, 220, 55],
+        getLineWidth: 1,
+        lineWidthUnits: "pixels",
+        updateTriggers: { getFillColor: riskKey },
+      })
+    );
+  }
 
   if (p.layers.rings) {
     out.push(

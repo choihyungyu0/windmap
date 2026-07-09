@@ -15,13 +15,14 @@ import {
 import { SOURCE_LL } from "@/lib/geo";
 
 /**
- * 사각지대 대기질 지도 (F-GAP-01) — 라이트 배경(CARTO positron) 위
- * HeatmapLayer로 위성 추정 PM2.5를 부드럽게 보간. 한국 대기질 표준 색축
- * (파랑→초록→노랑→빨강, 단조 증가 — Turbo 미사용: 지각 왜곡·색맹 취약).
- * colorDomain 고정으로 줌 무관 절대값 매핑. 클릭 시 격자 추정·신뢰도 팝업.
+ * 사각지대 대기질 지도 (F-GAP-01) — 다크 배경(CARTO dark-matter) 위 캔버스
+ * 래스터를 BitmapLayer로 얹어 위성 추정 PM2.5를 부드럽게 보간. 여러 오염원 +
+ * 바람 타원 이류 + 다중 옥타브 노이즈 + 구름 결측으로 자연스러운 얼룩.
+ * 색: 한국 대기질 표준(파랑→청록→노랑→주황→빨강, 단조 증가 — Turbo 미사용).
+ * ⚠ 시뮬레이션(배지 유지). 클릭 시 격자 추정·신뢰도 팝업.
  */
 
-const POSITRON = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 export function AirMap() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -31,11 +32,11 @@ export function AirMap() {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const raster = renderAirCanvas(96);
+    const raster = renderAirCanvas(200);
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: POSITRON,
+      style: DARK,
       center: [SOURCE_LL.lng, SOURCE_LL.lat],
       zoom: 10.4,
       attributionControl: { compact: true },
@@ -49,9 +50,9 @@ export function AirMap() {
           id: "air-raster",
           image: raster,
           bounds: [AIR_BOUNDS.west, AIR_BOUNDS.south, AIR_BOUNDS.east, AIR_BOUNDS.north],
-          opacity: 0.72,
+          opacity: 0.85, // 다크 배경에서 쨍하게
         }),
-        // 측정소 앵커
+        // 측정소 앵커 (다크 배경 — 흰 점)
         new ScatterplotLayer({
           id: "air-stations",
           data: AIR_STATIONS as unknown as { lng: number; lat: number }[],
@@ -59,9 +60,9 @@ export function AirMap() {
           getRadius: 5,
           radiusUnits: "pixels",
           radiusMinPixels: 5,
-          getFillColor: [17, 24, 39, 230],
+          getFillColor: [255, 255, 255, 240],
           stroked: true,
-          getLineColor: [255, 255, 255, 255],
+          getLineColor: [11, 27, 43, 255],
           getLineWidth: 2,
           lineWidthUnits: "pixels",
         }),

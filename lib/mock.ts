@@ -125,9 +125,53 @@ export interface HistoryRow {
 }
 
 /**
- * 데모 이력 생성 — 결정적(시드 고정, Math.random 미사용).
- * 시간별로 풍향·풍속·배출률을 규칙적으로 변화시키며 플룸 엔진으로
- * 실제 농도를 계산해, "좋음"이 아닌 시점만 경보 이력으로 남긴다.
+ * 데모 기상 시나리오 (결정적, Math.random 미사용) — 주풍 북서(315°) 주변을
+ * 사인 합성으로 느리게 배회. 이전의 '매시간 17° 기계 회전'은 플룸이 시설을
+ * 휙 지나쳐 농도가 바늘처럼 튀고 경보 풍향이 사방에 흩어져 비현실적이었다.
+ */
+export function scenarioAt(i: number): { wd: number; u: number; q: number } {
+  const wd =
+    (315 +
+      38 * Math.sin(i / 9) +
+      22 * Math.sin(i / 4.7 + 1.3) +
+      8 * Math.sin(i / 2.3 + 4) +
+      360) %
+    360;
+  const u = 2.1 + 1.5 * (0.5 + 0.5 * Math.sin(i / 6 + 2)) + 0.5 * Math.sin(i / 3.1);
+  const q = 42 + 16 * Math.sin(i / 8 + 1) + 7 * Math.sin(i / 3.7);
+  return { wd: Math.round(wd), u: Math.round(u * 10) / 10, q: Math.round(q) };
+}
+
+/**
+ * 시간 평균 농도 — 1시간 안의 풍향 요동(±14°)을 가중 평균해 섹터 평균 근사.
+ * 순간 플룸은 폭이 좁아 시설을 '휙 지나치며' 바늘 스파이크를 만들지만,
+ * 실제 시간평균 관측은 요동 덕에 완만하다 (표준적인 sector-averaged 근사).
+ */
+function hourlyConcentration(
+  ex: number,
+  ny: number,
+  p: { q: number; u: number; wd: number }
+): number {
+  const offsets = [-14, -7, 0, 7, 14];
+  const weights = [1, 2, 3, 2, 1];
+  let sum = 0;
+  for (let k = 0; k < offsets.length; k++) {
+    sum +=
+      weights[k] *
+      concentrationAt(ex, ny, {
+        q: p.q,
+        u: p.u,
+        wd: (p.wd + offsets[k] + 360) % 360,
+        stability: "D",
+        h: source.stackHeight,
+      });
+  }
+  return sum / 9;
+}
+
+/**
+ * 데모 이력 생성 — 결정적. 시간별 시나리오 기상으로 플룸 엔진 실계산,
+ * "좋음"이 아닌 시점만 경보 이력으로 남긴다.
  * P2 수집 파이프라인이 붙으면 DB(alert 테이블) 조회로 교체.
  */
 export function demoHistory(hours = 72): HistoryRow[] {
@@ -135,19 +179,13 @@ export function demoHistory(hours = 72): HistoryRow[] {
   // 고정 기준 시각 (재현성 — NFR-8): 2026-07-09 12:00 에서 과거로
   const base = new Date(2026, 6, 9, 12, 0, 0);
   for (let i = 0; i < hours; i++) {
-    const wd = (290 + i * 17) % 360;
-    const u = 1.5 + ((i * 7) % 8) * 0.7;
-    const q = 25 + ((i * 11) % 50);
+    const { wd, u, q } = scenarioAt(i);
     const t = new Date(base.getTime() - i * 3600_000);
     const ts = `${String(t.getMonth() + 1).padStart(2, "0")}-${String(
       t.getDate()
     ).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:00`;
     for (const r of receptors) {
-      const conc = concentrationAt(r.ex, r.ny, {
-        q, u, wd,
-        stability: "D",
-        h: source.stackHeight,
-      });
+      const conc = hourlyConcentration(r.ex, r.ny, { q, u, wd });
       const level = gradeOf(conc);
       if (level !== "good") {
         rows.push({
@@ -175,15 +213,8 @@ export function demoTrend(receptorId: string, hours = 24): number[] {
   if (!r) return [];
   const out: number[] = [];
   for (let i = hours - 1; i >= 0; i--) {
-    const wd = (290 + i * 17) % 360;
-    const u = 1.5 + ((i * 7) % 8) * 0.7;
-    const q = 25 + ((i * 11) % 50);
-    const conc = concentrationAt(r.ex, r.ny, {
-      q, u, wd,
-      stability: "D",
-      h: source.stackHeight,
-    });
-    out.push(Math.round(conc * 10) / 10);
+    const { wd, u, q } = scenarioAt(i);
+    out.push(Math.round(hourlyConcentration(r.ex, r.ny, { q, u, wd }) * 10) / 10);
   }
   return out;
 }

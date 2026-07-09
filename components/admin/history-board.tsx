@@ -122,7 +122,10 @@ export function HistoryBoard() {
       {/* 농도 추이 라인 차트 (기간·시설 필터 연동) */}
       <div className="mt-4 rounded-lg border border-control-line bg-control-surface/60 p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="kicker text-control-muted">농도 추이 (μg/m³)</h2>
+          <h2 className="kicker text-control-muted">
+            농도 추이{" "}
+            <span className="font-data normal-case text-control-muted">μg/m³</span>
+          </h2>
           <ChartLegend
             items={trendSeries.map((s) => ({ label: s.name, color: s.color }))}
           />

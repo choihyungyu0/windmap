@@ -10,11 +10,15 @@ import {
   source,
   sourceCandidates,
 } from "@/lib/mock";
+import { MODE_LABEL, readPipelineStatus } from "@/lib/pipeline-status";
 
 export const metadata: Metadata = {
   title: "관제 대시보드",
   robots: { index: false, follow: false },
 };
+
+// 파이프라인 상태 파일을 요청마다 읽는다 (빌드 시점 고정 방지)
+export const dynamic = "force-dynamic";
 
 const LEVEL_BG: Record<string, string> = {
   good: "var(--alert-good)",
@@ -24,8 +28,9 @@ const LEVEL_BG: Record<string, string> = {
 };
 
 /** ADM-DSH 관제 대시보드 (F-ADSH-01/02) — 기본 시나리오 플룸 실계산 집계.
- *  실시간 스트림(WS)·TMS 수집 연동은 P2/P7. */
-export default function AdminDashboardPage() {
+ *  실시간 스트림(WS) 연동은 P7. */
+export default async function AdminDashboardPage() {
+  const pipeline = await readPipelineStatus();
   const p = { ...defaultScenario, h: source.stackHeight };
   const readings = receptors
     .map((r) => {
@@ -40,7 +45,7 @@ export default function AdminDashboardPage() {
     {
       label: "감시 배출원",
       value: `${sourceCandidates.filter((s) => s.active).length} / ${sourceCandidates.length}`,
-      note: "TMS 수집 연동 P2 예정",
+      note: pipeline ? "TMS 수집 파이프라인 가동" : "TMS 수집 연동 P2 예정",
     },
     {
       label: "활성 경보",
@@ -67,6 +72,49 @@ export default function AdminDashboardPage() {
           시범 모드 · 시뮬레이션 데이터
         </span>
       </div>
+
+      {/* 자동화 파이프라인 상태 (AUTO-01·AUTO-03) */}
+      <section
+        aria-label="자동화 파이프라인 상태"
+        className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-control-line bg-control-surface/60 px-5 py-4"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{
+              background: pipeline
+                ? pipeline.issues.some((i) => i.level === "error")
+                  ? "var(--alert-severe)"
+                  : "var(--alert-good)"
+                : "var(--control-muted)",
+            }}
+            aria-hidden
+          />
+          수집 파이프라인
+          {pipeline ? ` · ${MODE_LABEL[pipeline.mode]}` : " · 미가동"}
+        </span>
+        {pipeline ? (
+          <>
+            <span className="font-data text-xs text-control-muted">
+              마지막 사이클 {pipeline.lastRun.slice(5, 16).replace("T", " ")} · 누적{" "}
+              {pipeline.cycles}회
+            </span>
+            <span className="font-data text-xs text-control-muted">
+              배출 {pipeline.dbTotals.emission_ts ?? 0} · 기상{" "}
+              {pipeline.dbTotals.weather_ts ?? 0} · 실측{" "}
+              {pipeline.dbTotals.station_ts ?? 0}행
+            </span>
+            <span className="text-xs text-control-muted">
+              이슈 {pipeline.issues.length}건
+              {pipeline.mode === "mock" && " · live 전환은 서비스 키 발급 후"}
+            </span>
+          </>
+        ) : (
+          <span className="text-xs text-control-muted">
+            engine 파이프라인 실행 전 — <code className="font-data">python -m engine.pipeline --mock</code>
+          </span>
+        )}
+      </section>
 
       {/* 요약 지표 (F-ADSH-01) */}
       <section aria-label="요약 지표" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -26,6 +26,8 @@ from .db import connect, upsert_many
 from .dispersion import predict_all
 from .export import write_status
 from .quality import audit_cycle
+from . import supabase_sink
+from .db import log_quality
 
 KST = timezone(timedelta(hours=9))
 
@@ -60,7 +62,38 @@ def run_cycle(when: datetime, mock: bool) -> dict:
             "INSERT INTO pipeline_run (ts, mode, ok, summary) VALUES (?,?,?,?)",
             (ts_iso, mode, ok, json.dumps(summary, ensure_ascii=False)),
         )
-        write_status(con, ts_iso, mode, results, issues, predictions)
+        status = write_status(con, ts_iso, mode, results, issues, predictions)
+
+        # Supabase 동기화 (배포용 사본) — 실패해도 사이클은 계속 (AUTO-03)
+        if supabase_sink.enabled():
+            err = supabase_sink.push_status(status)
+            if err:
+                log_quality(con, ts_iso, "supabase", "warn", err)
+                issues.append({"collector": "supabase", "level": "warn", "message": err})
+                # 로컬 상태 파일에도 동기화 경고 반영 (관제 배지 노출)
+                write_status(con, ts_iso, mode, results, issues, predictions)
+            else:
+                # 경보 이력(주의 이상)도 아카이브
+                weather_now = results["weather"]["rows"]
+                wd_now = weather_now[0][1] if weather_now else None
+                ws_now = weather_now[0][2] if weather_now else None
+                alerts = [
+                    {
+                        "ts": ts_iso,
+                        "receptor_id": p["id"],
+                        "receptor": p["name"],
+                        "level": "severe" if p["b1b"] >= 180 else "warn" if p["b1b"] >= 90 else "watch",
+                        "conc": p["b1b"],
+                        "arrival_min": p["arrivalMin"],
+                        "wd": wd_now,
+                        "ws": ws_now,
+                    }
+                    for p in predictions
+                    if p["b1b"] >= 40
+                ]
+                err2 = supabase_sink.push_alerts(alerts)
+                if err2:
+                    log_quality(con, ts_iso, "supabase", "warn", err2)
 
     return {
         "ts": ts_iso,

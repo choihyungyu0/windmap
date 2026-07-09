@@ -20,7 +20,7 @@ def write_status(
     results: dict[str, dict],
     issues: list[dict],
     predictions: list[dict] | None = None,
-) -> None:
+) -> dict:
     PUBLIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     counts: dict[str, Any] = {}
@@ -51,3 +51,4 @@ def write_status(
     STATUS_PATH.write_text(
         json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    return status

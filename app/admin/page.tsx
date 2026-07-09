@@ -11,6 +11,7 @@ import {
   sourceCandidates,
 } from "@/lib/mock";
 import { MODE_LABEL, readPipelineStatus } from "@/lib/pipeline-status";
+import { reportStats } from "@/lib/reports";
 
 export const metadata: Metadata = {
   title: "관제 대시보드",
@@ -31,6 +32,7 @@ const LEVEL_BG: Record<string, string> = {
  *  실시간 스트림(WS) 연동은 P7. */
 export default async function AdminDashboardPage() {
   const pipeline = await readPipelineStatus();
+  const reports = await reportStats();
   const p = { ...defaultScenario, h: source.stackHeight };
   const readings = receptors
     .map((r) => {
@@ -125,6 +127,44 @@ export default async function AdminDashboardPage() {
             <p className="mt-1.5 text-xs text-control-muted">{c.note}</p>
           </div>
         ))}
+      </section>
+
+      {/* 시민 제보 플라이휠 — 체감 응답이 학습으로 순환하는 루프 */}
+      <section
+        aria-label="시민 제보 플라이휠"
+        className="mt-6 rounded-lg border border-wind/30 bg-wind/5 p-5"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="kicker text-wind">시민 제보 플라이휠</h2>
+          <span className="text-xs text-control-muted">
+            경보 → 원터치 응답 → 정답 라벨 → 보정 학습 → 더 정확한 경보
+          </span>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-4">
+          {[
+            { label: "누적 제보", value: `${reports.total}건` },
+            {
+              label: "냄새남 / 괜찮음",
+              value: `${reports.smell} / ${reports.ok}`,
+            },
+            {
+              label: "예측↔체감 일치",
+              value: reports.agreement === null ? "—" : `${reports.agreement}%`,
+            },
+            { label: "기관 제보자 비중", value: `${reports.facilityShare}%` },
+          ].map((c) => (
+            <div key={c.label}>
+              <p className="text-xs text-control-muted">{c.label}</p>
+              <p className="font-data mt-1 text-xl font-semibold">{c.value}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 border-t border-control-line pt-3 text-xs leading-relaxed text-control-muted">
+          측정소 없는 곳의 실측 공백을 주민 체감으로 메웁니다. 응답은 검증
+          배치가 정답 라벨로 소비하며(예측↔체감 교차검증, 기관 제보자 2배 가중),
+          거짓·장난 제보는 가중·이상치·예측 대조로 방어합니다. 개인정보 미수집 —
+          시설ID·불리언만 저장.
+        </p>
       </section>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">

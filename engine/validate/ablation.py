@@ -28,6 +28,7 @@ from datetime import datetime
 
 from ..config import DB_PATH, PUBLIC_DATA_DIR, STACK_H
 from ..dispersion import plume, puff
+from . import citizen
 from .stats import Ridge, mae, pearson, rmse, wilcoxon_signed_rank_p
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -268,6 +269,12 @@ def run() -> dict:
         "deltaMethods": delta_diag,
         "model": "곱셈형 릿지 보정 (표준 라이브러리 자체 구현) — P6b에서 XGBoost 교체",
     }
+
+    # 플라이휠 ③: 시민 체감 제보를 정답 라벨로 소비 (있으면)
+    feedback = citizen.summarize()
+    if feedback:
+        citizen.mark_consumed()
+        report["citizenFeedback"] = feedback
 
     PUBLIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (PUBLIC_DATA_DIR / "validation-report.json").write_text(

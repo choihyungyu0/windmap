@@ -37,6 +37,34 @@ export function AlertsBoard() {
   const [filter, setFilter] = useState<Filter>("all");
   // F-ALT-03 — 시설별 맞춤 권고문 (LLM, 실패 시 템플릿 폴백)
   const [advisories, setAdvisories] = useState<Record<string, AdvisoryState>>({});
+  // 시민 체감 제보 (플라이휠) — 제출된 시설 ID → 응답
+  const [reported, setReported] = useState<Record<string, "smell" | "ok">>({});
+
+  async function sendReport(
+    a: { id: string; name: string; type: string; level: string; conc: number },
+    smell: boolean
+  ) {
+    setReported((s) => ({ ...s, [a.id]: smell ? "smell" : "ok" }));
+    try {
+      await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receptorId: a.id,
+          receptor: a.name,
+          smell,
+          // 취약시설 카드의 제보는 시설 담당자 시드 제보자로 가중
+          reporter: "facility",
+          predLevel: LEVEL_META[a.level as AlertLevel].label,
+          predConc: Math.round(a.conc * 10) / 10,
+          wd: defaultScenario.wd,
+          ws: defaultScenario.u,
+        }),
+      });
+    } catch {
+      /* 낙관적 UI — 실패해도 표시는 유지 */
+    }
+  }
 
   async function generateAdvisory(a: {
     id: string;
@@ -201,6 +229,39 @@ export function AlertsBoard() {
                     </button>
                   )
                 )}
+
+                {/* 원터치 체감 제보 (플라이휠) */}
+                <div className="mt-4 border-t border-border pt-4">
+                  {reported[a.id] ? (
+                    <p className="text-xs text-brand">
+                      ✓ 응답이 접수됐습니다 —{" "}
+                      {reported[a.id] === "smell" ? "냄새남" : "괜찮음"}. 이 응답은
+                      예측 보정 학습에 반영됩니다.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        지금 이 시설, 실제로 어떤가요? (응답이 AI를 학습시킵니다)
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => sendReport(a, true)}
+                          className="flex-1 rounded-full border border-alert-warn/40 bg-alert-warn/5 px-4 py-2 text-sm font-medium text-alert-warn transition-colors hover:bg-alert-warn/10"
+                        >
+                          😷 냄새나요
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sendReport(a, false)}
+                          className="flex-1 rounded-full border border-alert-good/40 bg-alert-good/5 px-4 py-2 text-sm font-medium text-alert-good transition-colors hover:bg-alert-good/10"
+                        >
+                          🙂 괜찮아요
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </li>
             );
           })}

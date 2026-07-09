@@ -44,3 +44,4 @@ engine/*.sqlite
 /public/data/pipeline-status.json
 __pycache__/
 *.pyc
+engine/citizen-reports.jsonl

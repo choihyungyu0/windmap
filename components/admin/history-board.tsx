@@ -1,8 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { demoHistory, LEVEL_META, receptors, type AlertLevel } from "@/lib/mock";
+import { demoHistory, demoTrend, LEVEL_META, receptors, type AlertLevel } from "@/lib/mock";
 import { cn } from "@/lib/utils";
+import { ChartLegend, LineChart } from "@/components/charts/primitives";
+
+// 시설별 라인 색 (관제 다크 배경 위 구분되는 팔레트)
+const TREND_COLORS = ["#22d3ee", "#f59e0b", "#f87171", "#a78bfa", "#34d399"];
 
 /**
  * F-ALOG-01/02 경보·노출 이력 — 시설 필터 + CSV 내보내기.
@@ -28,6 +32,17 @@ export function HistoryBoard() {
       (receptor === "all" || r.receptor === receptor) &&
       (level === "all" || r.level === level)
   );
+
+  // 농도 추이 라인 (기간·시설 필터 연동 — 등급 필터와 무관한 연속 시계열)
+  const trendSeries = useMemo(() => {
+    const targets =
+      receptor === "all" ? receptors : receptors.filter((r) => r.name === receptor);
+    return targets.map((r, i) => ({
+      name: r.name,
+      color: TREND_COLORS[i % TREND_COLORS.length],
+      data: demoTrend(r.id, hours),
+    }));
+  }, [receptor, hours]);
 
   function exportCsv() {
     const header = "시각,시설,유형,등급,농도(μg/m³),풍향(°),풍속(m/s)";
@@ -102,6 +117,27 @@ export function HistoryBoard() {
         >
           CSV 내보내기
         </button>
+      </div>
+
+      {/* 농도 추이 라인 차트 (기간·시설 필터 연동) */}
+      <div className="mt-4 rounded-lg border border-control-line bg-control-surface/60 p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 className="kicker text-control-muted">농도 추이 (μg/m³)</h2>
+          <ChartLegend
+            items={trendSeries.map((s) => ({ label: s.name, color: s.color }))}
+          />
+        </div>
+        <div className="mt-4">
+          <LineChart
+            series={trendSeries}
+            height={190}
+            xLabels={[
+              [0, `${hours}시간 전`],
+              [Math.floor(hours / 2), `${Math.floor(hours / 2)}시간 전`],
+              [hours - 1, "현재"],
+            ]}
+          />
+        </div>
       </div>
 
       {/* 이력 테이블 */}

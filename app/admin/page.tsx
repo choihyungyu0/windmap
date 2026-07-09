@@ -4,12 +4,14 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { concentrationAt } from "@/lib/plume";
 import {
   defaultScenario,
+  demoHistory,
   gradeOf,
   LEVEL_META,
   receptors,
   source,
   sourceCandidates,
 } from "@/lib/mock";
+import { Donut } from "@/components/charts/primitives";
 import { MODE_LABEL, readPipelineStatus } from "@/lib/pipeline-status";
 import { reportStats } from "@/lib/reports";
 
@@ -42,6 +44,11 @@ export default async function AdminDashboardPage() {
     .sort((a, b) => b.conc - a.conc);
   const active = readings.filter((r) => r.level !== "good");
   const worst = readings[0];
+
+  // 최근 72h 경보 등급 분포 (도넛)
+  const hist = demoHistory(72);
+  const histCounts = { watch: 0, warn: 0, severe: 0 };
+  for (const h of hist) if (h.level !== "good") histCounts[h.level]++;
 
   const cards = [
     {
@@ -140,24 +147,44 @@ export default async function AdminDashboardPage() {
             경보 → 원터치 응답 → 정답 라벨 → 보정 학습 → 더 정확한 경보
           </span>
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-4">
-          {[
-            { label: "누적 제보", value: `${reports.total}건` },
-            {
-              label: "냄새남 / 괜찮음",
-              value: `${reports.smell} / ${reports.ok}`,
-            },
-            {
-              label: "예측↔체감 일치",
-              value: reports.agreement === null ? "—" : `${reports.agreement}%`,
-            },
-            { label: "기관 제보자 비중", value: `${reports.facilityShare}%` },
-          ].map((c) => (
-            <div key={c.label}>
-              <p className="text-xs text-control-muted">{c.label}</p>
-              <p className="font-data mt-1 text-xl font-semibold">{c.value}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-8">
+          {/* 체감 응답 구성 도넛 */}
+          <div className="flex items-center gap-4">
+            <Donut
+              size={104}
+              thickness={13}
+              segments={[
+                { label: "냄새남", value: reports.smell, color: "var(--alert-warn)" },
+                { label: "괜찮음", value: reports.ok, color: "var(--alert-good)" },
+              ]}
+              centerLabel={String(reports.total)}
+              centerSub="건"
+            />
+            <div className="flex flex-col gap-1.5 text-xs text-control-muted">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: "var(--alert-warn)" }} />
+                냄새남 {reports.smell}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ background: "var(--alert-good)" }} />
+                괜찮음 {reports.ok}
+              </span>
             </div>
-          ))}
+          </div>
+          <div className="grid flex-1 grid-cols-2 gap-4 sm:grid-cols-2">
+            {[
+              {
+                label: "예측↔체감 일치",
+                value: reports.agreement === null ? "—" : `${reports.agreement}%`,
+              },
+              { label: "기관 제보자 비중", value: `${reports.facilityShare}%` },
+            ].map((c) => (
+              <div key={c.label}>
+                <p className="text-xs text-control-muted">{c.label}</p>
+                <p className="font-data mt-1 text-xl font-semibold">{c.value}</p>
+              </div>
+            ))}
+          </div>
         </div>
         <p className="mt-4 border-t border-control-line pt-3 text-xs leading-relaxed text-control-muted">
           측정소 없는 곳의 실측 공백을 주민 체감으로 메웁니다. 응답은 검증
@@ -212,6 +239,42 @@ export default async function AdminDashboardPage() {
           </Link>
         </section>
 
+        <div className="flex flex-col gap-5">
+        {/* 최근 72h 경보 등급 분포 (도넛) */}
+        <section
+          aria-label="경보 등급 분포"
+          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+        >
+          <h2 className="kicker text-control-muted">최근 72시간 경보 등급 분포</h2>
+          <div className="mt-4 flex items-center gap-5">
+            <Donut
+              size={112}
+              thickness={14}
+              segments={[
+                { label: "주의", value: histCounts.watch, color: "var(--alert-watch)" },
+                { label: "경계", value: histCounts.warn, color: "var(--alert-warn)" },
+                { label: "심각", value: histCounts.severe, color: "var(--alert-severe)" },
+              ]}
+              centerLabel={String(histCounts.watch + histCounts.warn + histCounts.severe)}
+              centerSub="건"
+            />
+            <ul className="flex flex-col gap-1.5 text-xs text-control-muted">
+              {(
+                [
+                  ["주의", histCounts.watch, "var(--alert-watch)"],
+                  ["경계", histCounts.warn, "var(--alert-warn)"],
+                  ["심각", histCounts.severe, "var(--alert-severe)"],
+                ] as const
+              ).map(([label, n, c]) => (
+                <li key={label} className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ background: c }} />
+                  {label} <span className="font-data">{n}</span>건
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
         {/* 시설 위험도 집계 */}
         <section
           aria-label="시설 위험도"
@@ -240,6 +303,7 @@ export default async function AdminDashboardPage() {
             </p>
           )}
         </section>
+        </div>
       </div>
     </AdminShell>
   );

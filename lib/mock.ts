@@ -166,6 +166,28 @@ export function demoHistory(hours = 72): HistoryRow[] {
   return rows;
 }
 
+/**
+ * 시설별 최근 추이 (스파크라인용) — demoHistory와 같은 결정적 시나리오
+ * 규칙을 쓰되 '좋음' 시점도 포함해 연속 시계열을 만든다. 과거→현재 순.
+ */
+export function demoTrend(receptorId: string, hours = 24): number[] {
+  const r = receptors.find((x) => x.id === receptorId);
+  if (!r) return [];
+  const out: number[] = [];
+  for (let i = hours - 1; i >= 0; i--) {
+    const wd = (290 + i * 17) % 360;
+    const u = 1.5 + ((i * 7) % 8) * 0.7;
+    const q = 25 + ((i * 11) % 50);
+    const conc = concentrationAt(r.ex, r.ny, {
+      q, u, wd,
+      stability: "D",
+      h: source.stackHeight,
+    });
+    out.push(Math.round(conc * 10) / 10);
+  }
+  return out;
+}
+
 /** /report 프레임용 애블레이션 예시 수치 — P6 실검증값으로 교체 (라벨 필수) */
 export const ablationExample = {
   caveat: "예시 수치 — P6 검증 배치의 실측 결과로 교체 예정",

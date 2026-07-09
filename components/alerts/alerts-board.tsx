@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { concentrationAt } from "@/lib/plume";
 import {
   defaultScenario,
+  demoTrend,
   gradeOf,
   LEVEL_META,
   receptors,
@@ -11,6 +12,7 @@ import {
   type AlertLevel,
 } from "@/lib/mock";
 import { cn } from "@/lib/utils";
+import { SparkLine } from "@/components/charts/primitives";
 
 /**
  * F-ALT-01/02 취약시설 경보 보드 — 기본 시나리오(플룸 엔진 실계산)로
@@ -106,7 +108,7 @@ export function AlertsBoard() {
         const downwind = r.ex * Math.sin(bearing) + r.ny * Math.cos(bearing);
         const etaMin =
           downwind > 0 ? Math.round(downwind / p.u / 60) : null;
-        return { ...r, conc, level: gradeOf(conc), etaMin };
+        return { ...r, conc, level: gradeOf(conc), etaMin, trend: demoTrend(r.id, 24) };
       })
       .sort((a, b) => b.conc - a.conc);
   }, []);
@@ -193,6 +195,22 @@ export function AlertsBoard() {
                     </dd>
                   </div>
                 </dl>
+
+                {/* 최근 24h 추이 스파크라인 — 등급 색 연동 */}
+                <div className="mt-4 flex items-end justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">최근 24시간 추이</p>
+                    <p className="tnum mt-0.5 text-xs text-muted-foreground/70">
+                      최대 {Math.max(...a.trend).toFixed(1)} μg/m³
+                    </p>
+                  </div>
+                  <SparkLine
+                    data={a.trend}
+                    color={`var(--alert-${a.level})`}
+                    width={150}
+                    height={36}
+                  />
+                </div>
 
                 <p className="mt-4 rounded-md bg-muted px-4 py-3 text-sm leading-relaxed">
                   {meta.advice}

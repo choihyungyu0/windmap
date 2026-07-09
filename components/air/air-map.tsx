@@ -3,36 +3,83 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { BitmapLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { BitmapLayer, GeoJsonLayer, ScatterplotLayer } from "@deck.gl/layers";
+import type { Layer } from "@deck.gl/core";
 import {
   AIR_BOUNDS,
   AIR_STATIONS,
   estimateAt,
   pmClass,
   renderAirCanvas,
+  renderAirCanvasClipped,
   type AirCell,
 } from "@/lib/air-grid";
 import { SOURCE_LL } from "@/lib/geo";
 
 /**
- * 사각지대 대기질 지도 (F-GAP-01) — 다크 배경(CARTO dark-matter) 위 캔버스
- * 래스터를 BitmapLayer로 얹어 위성 추정 PM2.5를 부드럽게 보간. 여러 오염원 +
- * 바람 타원 이류 + 다중 옥타브 노이즈 + 구름 결측으로 자연스러운 얼룩.
- * 색: 한국 대기질 표준(파랑→청록→노랑→주황→빨강, 단조 증가 — Turbo 미사용).
- * ⚠ 시뮬레이션(배지 유지). 클릭 시 격자 추정·신뢰도 팝업.
+ * 사각지대 대기질 지도 (F-GAP-01) — 다크 배경(CARTO dark-matter) 위 위성 추정
+ * PM2.5. 히트맵(부드러운 구름 얼룩)을 청주 행정경계 안쪽으로만 클리핑해
+ * 지도 밖 네모 번짐을 없앤다(경계선을 따라 오염이 잘림 — 뉴스 이미지형).
+ * 색: 한국 대기질 표준. ⚠ 시뮬레이션(배지 유지). 클릭 시 추정·신뢰도 팝업.
  */
 
 const DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
+type EmdFeature = {
+  geometry: { type: string; coordinates: number[][][] | number[][][][] };
+};
+
 export function AirMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const overlayRef = useRef<MapboxOverlay | null>(null);
   const [pick, setPick] = useState<AirCell | null>(null);
   const [tilesError, setTilesError] = useState(false);
 
+  function layers(raster: HTMLCanvasElement, emd: EmdFeature[] | null): Layer[] {
+    const out: Layer[] = [
+      new BitmapLayer({
+        id: "air-raster",
+        image: raster,
+        bounds: [AIR_BOUNDS.west, AIR_BOUNDS.south, AIR_BOUNDS.east, AIR_BOUNDS.north],
+        opacity: 0.85,
+      }),
+    ];
+    // 경계선 살짝 (오염이 어느 구역에 잘렸는지 읽히게)
+    if (emd) {
+      out.push(
+        new GeoJsonLayer({
+          id: "air-emd-line",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: { type: "FeatureCollection", features: emd } as any,
+          stroked: true,
+          filled: false,
+          getLineColor: [230, 238, 245, 60],
+          getLineWidth: 1,
+          lineWidthUnits: "pixels",
+        })
+      );
+    }
+    out.push(
+      new ScatterplotLayer({
+        id: "air-stations",
+        data: AIR_STATIONS as unknown as { lng: number; lat: number }[],
+        getPosition: (d) => [d.lng, d.lat],
+        getRadius: 5,
+        radiusUnits: "pixels",
+        radiusMinPixels: 5,
+        getFillColor: [255, 255, 255, 240],
+        stroked: true,
+        getLineColor: [11, 27, 43, 255],
+        getLineWidth: 2,
+        lineWidthUnits: "pixels",
+      })
+    );
+    return out;
+  }
+
   useEffect(() => {
     if (!containerRef.current) return;
-    const raster = renderAirCanvas(200);
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -44,32 +91,22 @@ export function AirMap() {
     map.addControl(new maplibregl.NavigationControl(), "top-left");
 
     const overlay = new MapboxOverlay({
-      layers: [
-        // 캔버스 래스터를 GPU 선형 보간으로 부드럽게 — 절대 색 매핑
-        new BitmapLayer({
-          id: "air-raster",
-          image: raster,
-          bounds: [AIR_BOUNDS.west, AIR_BOUNDS.south, AIR_BOUNDS.east, AIR_BOUNDS.north],
-          opacity: 0.85, // 다크 배경에서 쨍하게
-        }),
-        // 측정소 앵커 (다크 배경 — 흰 점)
-        new ScatterplotLayer({
-          id: "air-stations",
-          data: AIR_STATIONS as unknown as { lng: number; lat: number }[],
-          getPosition: (d) => [d.lng, d.lat],
-          getRadius: 5,
-          radiusUnits: "pixels",
-          radiusMinPixels: 5,
-          getFillColor: [255, 255, 255, 240],
-          stroked: true,
-          getLineColor: [11, 27, 43, 255],
-          getLineWidth: 2,
-          lineWidthUnits: "pixels",
-        }),
-      ],
+      // 경계 로드 전: 클리핑 없는 래스터로 우선 표시
+      layers: layers(renderAirCanvas(200), null),
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
     });
     map.addControl(overlay as unknown as maplibregl.IControl);
+    overlayRef.current = overlay;
+
+    // 경계 로드 → 클리핑 래스터로 교체
+    fetch("/data/cheongju_emd.geojson")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((geo: { features: EmdFeature[] } | null) => {
+        if (!geo || !overlayRef.current) return;
+        const clipped = renderAirCanvasClipped(geo.features, 320);
+        overlayRef.current.setProps({ layers: layers(clipped, geo.features) });
+      })
+      .catch(() => {});
 
     let flagged = false;
     map.on("error", () => {
@@ -78,7 +115,6 @@ export function AirMap() {
         setTilesError(true);
       }
     });
-    // 지명 한글화
     map.on("style.load", () => {
       for (const layer of map.getStyle().layers) {
         if (layer.type !== "symbol") continue;
@@ -93,7 +129,6 @@ export function AirMap() {
         }
       }
     });
-    // 클릭한 지점 값 (격자점 밖 클릭 대응)
     map.on("click", (e) => setPick(estimateAt(e.lngLat.lng, e.lngLat.lat)));
 
     const ro = new ResizeObserver(() => map.resize());
@@ -104,6 +139,7 @@ export function AirMap() {
       ro.disconnect();
       map.remove();
       mapRef.current = null;
+      overlayRef.current = null;
     };
   }, []);
 
@@ -119,7 +155,7 @@ export function AirMap() {
         </div>
       )}
 
-      {/* 클릭 팝업 (F-GAP-01: 격자별 추정 농도 + 신뢰도) */}
+      {/* 클릭 팝업 (F-GAP-01: 추정 농도 + 신뢰도) */}
       {pick && pk && (
         <div className="absolute right-3 top-3 z-10 w-52 rounded-lg border border-border bg-white/95 p-4 shadow-lg backdrop-blur">
           <div className="flex items-baseline justify-between">

@@ -169,6 +169,49 @@ function toNorm(lng: number, lat: number): [number, number] {
   ];
 }
 
+/** 경위도 → 래스터 캔버스 픽셀 좌표 (n×n, AIR_BOUNDS 기준) */
+function llToPixel(lng: number, lat: number, n: number): [number, number] {
+  const [nx, ny] = toNorm(lng, lat);
+  return [nx * (n - 1), (1 - ny) * (n - 1)]; // 위=북
+}
+
+/**
+ * 대기질 래스터를 청주 행정경계 안쪽으로만 클리핑 — 지도 밖(바다·타 지역)
+ * 네모 번짐 제거. 경계 밖은 투명, 경계선을 따라 오염이 잘린다(뉴스 이미지형).
+ * @param features 청주 읍면동 MultiPolygon feature 배열
+ */
+export function renderAirCanvasClipped(
+  features: { geometry: { type: string; coordinates: number[][][] | number[][][][] } }[],
+  n = 320,
+): HTMLCanvasElement {
+  const base = renderAirCanvas(n);
+  const out = document.createElement("canvas");
+  out.width = n;
+  out.height = n;
+  const ctx = out.getContext("2d")!;
+
+  // 청주 전체 경계를 하나의 클립 패스로
+  ctx.beginPath();
+  for (const f of features) {
+    const polys =
+      f.geometry.type === "MultiPolygon"
+        ? (f.geometry.coordinates as number[][][][])
+        : [f.geometry.coordinates as number[][][]];
+    for (const poly of polys) {
+      const ring = poly[0];
+      for (let i = 0; i < ring.length; i++) {
+        const [px, py] = llToPixel(ring[i][0], ring[i][1], n);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    }
+  }
+  ctx.clip();
+  ctx.drawImage(base, 0, 0);
+  return out;
+}
+
 /** 임의 지점 추정값 (지도 클릭 팝업용) */
 export function estimateAt(lng: number, lat: number): AirCell {
   const [nx, ny] = toNorm(lng, lat);

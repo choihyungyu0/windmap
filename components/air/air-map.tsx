@@ -3,15 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { HeatmapLayer } from "@deck.gl/aggregation-layers";
-import { ScatterplotLayer } from "@deck.gl/layers";
-import type { PickingInfo } from "@deck.gl/core";
+import { BitmapLayer, ScatterplotLayer } from "@deck.gl/layers";
 import {
   AIR_BOUNDS,
   AIR_STATIONS,
-  airGrid,
   estimateAt,
   pmClass,
+  renderAirCanvas,
   type AirCell,
 } from "@/lib/air-grid";
 import { SOURCE_LL } from "@/lib/geo";
@@ -25,15 +23,6 @@ import { SOURCE_LL } from "@/lib/geo";
 
 const POSITRON = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
-// 대기질 표준 램프 (좋음→매우나쁨). HeatmapLayer는 저→고 순서로 보간.
-const COLOR_RANGE: [number, number, number][] = [
-  [37, 99, 235], // 좋음 (파랑)
-  [5, 150, 105], // 보통 (초록)
-  [217, 119, 6], // 나쁨 진입 (호박)
-  [234, 88, 12], // 나쁨 (주황)
-  [220, 38, 38], // 매우나쁨 (빨강)
-];
-
 export function AirMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -42,7 +31,7 @@ export function AirMap() {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const grid = airGrid(42);
+    const raster = renderAirCanvas(96);
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -55,30 +44,12 @@ export function AirMap() {
 
     const overlay = new MapboxOverlay({
       layers: [
-        new HeatmapLayer<AirCell>({
-          id: "air-heat",
-          data: grid,
-          getPosition: (d) => [d.lng, d.lat],
-          getWeight: (d) => d.pm25,
-          radiusPixels: 70,
-          intensity: 1,
-          threshold: 0.03,
-          colorRange: COLOR_RANGE,
-          colorDomain: [10, 90], // 절대 매핑 — 줌 변화에도 색=농도 유지
-          opacity: 0.68,
-        }),
-        // 픽킹 전용 투명 격자점 — HeatmapLayer는 집계라 클릭 대상이 없음
-        new ScatterplotLayer<AirCell>({
-          id: "air-pick",
-          data: grid,
-          getPosition: (d) => [d.lng, d.lat],
-          getRadius: 340,
-          radiusUnits: "meters",
-          getFillColor: [0, 0, 0, 0],
-          pickable: true,
-          onClick: (info: PickingInfo<AirCell>) => {
-            if (info.object) setPick(info.object);
-          },
+        // 캔버스 래스터를 GPU 선형 보간으로 부드럽게 — 절대 색 매핑
+        new BitmapLayer({
+          id: "air-raster",
+          image: raster,
+          bounds: [AIR_BOUNDS.west, AIR_BOUNDS.south, AIR_BOUNDS.east, AIR_BOUNDS.north],
+          opacity: 0.72,
         }),
         // 측정소 앵커
         new ScatterplotLayer({

@@ -11,7 +11,7 @@ import {
   source,
   sourceCandidates,
 } from "@/lib/mock";
-import { Donut } from "@/components/charts/primitives";
+import { Donut, WindRose } from "@/components/charts/primitives";
 import { MODE_LABEL, readPipelineStatus } from "@/lib/pipeline-status";
 import { reportStats } from "@/lib/reports";
 
@@ -45,10 +45,14 @@ export default async function AdminDashboardPage() {
   const active = readings.filter((r) => r.level !== "good");
   const worst = readings[0];
 
-  // 최근 72h 경보 등급 분포 (도넛)
+  // 최근 72h 경보 등급 분포 (도넛) + 경보 발생 풍향 분포 (바람 장미)
   const hist = demoHistory(72);
   const histCounts = { watch: 0, warn: 0, severe: 0 };
-  for (const h of hist) if (h.level !== "good") histCounts[h.level]++;
+  const windBins = new Array(16).fill(0) as number[];
+  for (const h of hist) {
+    if (h.level !== "good") histCounts[h.level]++;
+    windBins[Math.round(h.wd / 22.5) % 16]++;
+  }
 
   const cards = [
     {
@@ -273,6 +277,24 @@ export default async function AdminDashboardPage() {
               ))}
             </ul>
           </div>
+        </section>
+
+        {/* 경보 발생 풍향 분포 (바람 장미) */}
+        <section
+          aria-label="경보 발생 풍향 분포"
+          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+        >
+          <div className="flex items-baseline justify-between">
+            <h2 className="kicker text-control-muted">경보 발생 풍향 분포</h2>
+            <span className="text-xs text-control-muted">최근 72시간</span>
+          </div>
+          <div className="mt-2 flex justify-center">
+            <WindRose bins={windBins} size={190} color="#22d3ee" />
+          </div>
+          <p className="text-xs leading-relaxed text-control-muted">
+            경보가 발생한 시각의 풍향(불어오는 방향) 빈도 — 어느 바람일 때
+            취약시설이 영향권에 드는지 보여줍니다.
+          </p>
         </section>
 
         {/* 시설 위험도 집계 */}

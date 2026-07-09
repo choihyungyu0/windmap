@@ -322,6 +322,63 @@ export function LineChart({
   );
 }
 
+// ── 바람 장미: 16방위 빈도 (경보 발생 풍향 분포 등) ──
+export function WindRose({
+  bins,
+  size = 180,
+  color = "#22d3ee",
+}: {
+  /** 16방위 빈도 — index 0 = 북(N), 시계방향 22.5° 간격 */
+  bins: number[];
+  size?: number;
+  color?: string;
+}) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const rMax = size / 2 - 20;
+  const max = Math.max(...bins) || 1;
+  const wedge = (i: number, r: number) => {
+    const a0 = ((i * 22.5 - 9.5) * Math.PI) / 180; // 살짝 간격
+    const a1 = ((i * 22.5 + 9.5) * Math.PI) / 180;
+    const x0 = cx + r * Math.sin(a0);
+    const y0 = cy - r * Math.cos(a0);
+    const x1 = cx + r * Math.sin(a1);
+    const y1 = cy - r * Math.cos(a1);
+    return `M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z`;
+  };
+  const gridR = [1 / 3, 2 / 3, 1].map((f) => rMax * f);
+  const compass: [string, number, number][] = [
+    ["N", cx, 11],
+    ["E", size - 6, cy + 3.5],
+    ["S", cx, size - 4],
+    ["W", 6, cy + 3.5],
+  ];
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img">
+      {gridR.map((r) => (
+        <circle key={r} cx={cx} cy={cy} r={r} fill="none" stroke="currentColor" opacity={0.12} />
+      ))}
+      <line x1={cx} y1={cy - rMax} x2={cx} y2={cy + rMax} stroke="currentColor" opacity={0.1} />
+      <line x1={cx - rMax} y1={cy} x2={cx + rMax} y2={cy} stroke="currentColor" opacity={0.1} />
+      {bins.map((v, i) =>
+        v > 0 ? (
+          <path
+            key={i}
+            d={wedge(i, 6 + (v / max) * (rMax - 6))}
+            fill={color}
+            opacity={0.32 + 0.55 * (v / max)}
+          />
+        ) : null
+      )}
+      {compass.map(([t, x, y]) => (
+        <text key={t} x={x} y={y} textAnchor="middle" fontSize="10" fill="currentColor" opacity={0.55} className="font-data">
+          {t}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
 // ── 차트 범례 ──
 export function ChartLegend({
   items,

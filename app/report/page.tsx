@@ -6,6 +6,7 @@ import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal } from "@/components/site/reveal";
 import { BreadcrumbJsonLd } from "@/components/site/breadcrumb-jsonld";
+import { ReportSummary } from "@/components/report/report-summary";
 import { ablationExample } from "@/lib/mock";
 
 export const metadata: Metadata = {
@@ -150,6 +151,13 @@ export default async function ReportPage() {
               </p>
             </div>
           </Reveal>
+
+          {/* 발표용 요약 (F-RPT · LLM 전달 계층) — 실검증 데이터가 있을 때만 */}
+          {real && (
+            <Reveal delay={0.05}>
+              <ReportSummary />
+            </Reveal>
+          )}
 
           {/* 배경농도 분리 */}
           <Reveal delay={0.1} className="mt-16">

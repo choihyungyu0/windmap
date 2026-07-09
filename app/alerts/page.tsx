@@ -5,6 +5,7 @@ import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal } from "@/components/site/reveal";
 import { AlertsBoard } from "@/components/alerts/alerts-board";
 import { RiskMap } from "@/components/alerts/risk-map";
+import { CitizenChat } from "@/components/site/citizen-chat";
 import { BreadcrumbJsonLd } from "@/components/site/breadcrumb-jsonld";
 
 export const metadata: Metadata = {
@@ -35,6 +36,7 @@ export default function AlertsPage() {
         </Section>
       </main>
       <Footer />
+      <CitizenChat />
     </>
   );
 }

@@ -5,6 +5,7 @@ import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal, RevealLines } from "@/components/site/reveal";
 import { SearchEntry } from "@/components/site/search-entry";
 import { HeroFog } from "@/components/site/hero-fog";
+import { CitizenChat } from "@/components/site/citizen-chat";
 import { defaultReadings, LEVEL_META } from "@/lib/mock";
 import { Wind, Siren, SatelliteDish, FlaskConical } from "lucide-react";
 
@@ -179,6 +180,7 @@ export default function Home() {
         </Section>
       </main>
       <Footer />
+      <CitizenChat />
     </>
   );
 }

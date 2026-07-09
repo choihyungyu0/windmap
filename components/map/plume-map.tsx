@@ -159,6 +159,29 @@ export function PlumeMap(props: PlumeMapProps) {
       "top-left"
     );
 
+    // 지명 한글화 — CARTO 기본 스타일은 로마자(name_en 계열)를 쓰므로,
+    // 이름을 그리는 심볼 레이어의 text-field 를 한글 우선으로 교체.
+    // (OSM 로컬 지명(name)이 국내에서는 한글)
+    map.on("style.load", () => {
+      for (const layer of map.getStyle().layers) {
+        if (layer.type !== "symbol") continue;
+        const tf = map.getLayoutProperty(layer.id, "text-field");
+        if (tf && JSON.stringify(tf).includes("name")) {
+          map.setLayoutProperty(layer.id, "text-field", [
+            "coalesce",
+            ["get", "name:ko"],
+            ["get", "name"],
+            ["get", "name_en"],
+          ]);
+        }
+      }
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      // 개발 편의: 콘솔에서 지도 상태 점검용
+      (window as unknown as Record<string, unknown>).__windmapMap = map;
+    }
+
     const overlay = new MapboxOverlay({
       layers: [],
       onClick: (info: PickingInfo) => {

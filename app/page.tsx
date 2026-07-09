@@ -30,12 +30,12 @@ const FEATURES = [
   },
 ] as const;
 
-const SOURCES = [
-  "환경부 CleanSYS (굴뚝 TMS)",
-  "기상청 API",
-  "에어코리아",
-  "천리안 GK-2 / MODIS",
-];
+// 서비스 소개 요약 — 3축 하이브리드 원리 (상세: /about)
+const PRINCIPLES = [
+  ["① 확산 엔진 (물리)", "가우시안 플룸·퍼프로 오염물질이 어디로, 언제 퍼질지 계산"],
+  ["② 보정 AI (학습)", "물리 예측과 하류 실측의 오차를 학습해 지형·시간대 보정"],
+  ["③ 공백 추정 AI (위성)", "위성 AOD로 측정소 없는 마을의 대기질까지 추정"],
+] as const;
 
 export default function Home() {
   // F-SRCH-02 내 주변 위험 요약(간이판) — 시범 구역 기본 시나리오의 현재 상태
@@ -151,32 +151,71 @@ export default function Home() {
           </div>
         </Section>
 
-        {/* ── 신뢰: 검증과 데이터 출처 ── */}
+        {/* ── 서비스 소개: 왜 만들었나(북이면) + 어떻게 작동하나(3축) ── */}
         <Section className="border-t border-border">
           <SectionHeader
-            kicker="Evidence"
-            title={"주장하지 않고\n증명합니다"}
-            description="물리 확산모델과 보정 AI의 하이브리드. 배출원과 하류 측정소의 실측 대조로 예측 정확도를 정량 검증하고, 그 과정을 전부 공개합니다."
-            trailing={
-              <Link
-                href="/report"
-                className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-medium transition-colors hover:border-brand/50 hover:text-brand"
-              >
-                <FlaskConical className="size-4" aria-hidden />
-                성능 검증 리포트
-              </Link>
-            }
+            kicker="About — 왜 만들었나"
+            title={"기록되지 않은 공기가\n있었습니다"}
           />
-          <Reveal delay={0.15}>
-            <div className="mt-14 flex flex-wrap items-center gap-x-10 gap-y-4 border-t border-border pt-8">
-              <span className="kicker text-muted-foreground">데이터 출처</span>
-              {SOURCES.map((s) => (
-                <span key={s} className="text-sm font-medium text-muted-foreground">
-                  {s}
+          <div className="mt-12 grid gap-12 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
+            {/* 북이면 스토리 (요약) */}
+            <Reveal>
+              <div className="space-y-5 text-base leading-relaxed text-muted-foreground lg:text-lg">
+                <p>
+                  청주시 북이면 — 소각시설이 밀집한 이 지역의 주민들은 2019년
+                  국내 최초의 소각장 주변 건강영향조사를 이끌어냈습니다. 조사는
+                  높은 암 발생을 확인했지만 결론은{" "}
+                  <em className="not-italic font-medium text-foreground">
+                    &ldquo;역학적 관련성을 입증할 과학적 근거가 제한적&rdquo;
+                  </em>
+                  이었습니다.
+                </p>
+                <p>
+                  이유는 하나 —{" "}
+                  <strong className="font-semibold text-foreground">
+                    배출이 언제, 어디로, 누구에게 닿았는지 기록한 데이터가
+                    어디에도 없었기 때문입니다.
+                  </strong>{" "}
+                  바람의 지도는 그 공백을 메우는, 같은 갈등이 반복되기 전에
+                  미리 만들어 두는 사회적 인프라입니다.
+                </p>
+              </div>
+            </Reveal>
+
+            {/* 3축 원리 요약 */}
+            <Reveal delay={0.12}>
+              <div className="flex h-full flex-col">
+                <span className="kicker text-muted-foreground">
+                  물리가 뼈대, AI가 정확도
                 </span>
-              ))}
-            </div>
-          </Reveal>
+                <ul className="mt-5 flex flex-col divide-y divide-border border-y border-border">
+                  {PRINCIPLES.map(([name, desc]) => (
+                    <li key={name} className="py-4">
+                      <p className="text-sm font-bold">{name}</p>
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                        {desc}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-auto flex flex-wrap gap-3 pt-8">
+                  <Link
+                    href="/about"
+                    className="inline-flex items-center gap-2 rounded-full bg-brand px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                  >
+                    서비스 소개 자세히 →
+                  </Link>
+                  <Link
+                    href="/report"
+                    className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-medium transition-colors hover:border-brand/50 hover:text-brand"
+                  >
+                    <FlaskConical className="size-4" aria-hidden />
+                    성능 검증 리포트
+                  </Link>
+                </div>
+              </div>
+            </Reveal>
+          </div>
         </Section>
       </main>
       <Footer />

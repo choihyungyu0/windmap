@@ -5,7 +5,6 @@ import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal, RevealLines } from "@/components/site/reveal";
 import { SearchEntry } from "@/components/site/search-entry";
 import { HeroFog } from "@/components/site/hero-fog";
-import { HeroMapPreview } from "@/components/site/hero-map-preview";
 import { defaultReadings, LEVEL_META } from "@/lib/mock";
 import { Wind, Siren, SatelliteDish, FlaskConical } from "lucide-react";
 
@@ -50,7 +49,6 @@ export default function Home() {
         {/* ── 히어로: 질문으로 연다 ── */}
         <Section className="overflow-hidden pt-36 lg:pt-44">
           <HeroFog />
-          <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_400px] xl:grid-cols-[minmax(0,1fr)_460px]">
           <div className="max-w-4xl">
             <Reveal>
               <span className="kicker text-brand">
@@ -114,12 +112,6 @@ export default function Home() {
                 </span>
               </Link>
             </Reveal>
-          </div>
-
-          {/* 제품 프리뷰 — 관제 화면 축소판 (데스크톱) */}
-          <Reveal delay={0.2} className="hidden lg:block">
-            <HeroMapPreview />
-          </Reveal>
           </div>
         </Section>
 

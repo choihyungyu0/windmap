@@ -4,6 +4,7 @@ import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
 import { Reveal, RevealLines } from "@/components/site/reveal";
 import { SearchEntry } from "@/components/site/search-entry";
+import { HeroFog } from "@/components/site/hero-fog";
 import { defaultReadings, LEVEL_META } from "@/lib/mock";
 import { Wind, Siren, SatelliteDish, FlaskConical } from "lucide-react";
 
@@ -46,7 +47,8 @@ export default function Home() {
       <Navbar />
       <main id="main">
         {/* ── 히어로: 질문으로 연다 ── */}
-        <Section className="pt-36 lg:pt-44">
+        <Section className="overflow-hidden pt-36 lg:pt-44">
+          <HeroFog />
           <div className="max-w-4xl">
             <Reveal>
               <span className="kicker text-brand">

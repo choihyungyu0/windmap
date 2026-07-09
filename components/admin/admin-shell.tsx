@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { LogoMark } from "@/components/site/logo";
-import { LogoutButton } from "@/app/admin/logout-button";
 import { AdminNav } from "./admin-nav";
 
 /** 관리자 공통 셸 — 관제 다크 톤. 탭: 관제 / 배출원 / 이력. */
@@ -21,15 +20,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <AdminNav />
 
-        <div className="ml-auto flex items-center gap-3">
-          <Link
-            href="/map"
-            className="text-sm text-control-muted transition-colors hover:text-control-text"
-          >
-            공개 화면 보기
-          </Link>
-          <LogoutButton />
-        </div>
+        <Link
+          href="/map"
+          className="ml-auto text-sm text-control-muted transition-colors hover:text-control-text"
+        >
+          공개 화면 보기
+        </Link>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8 lg:px-6 lg:py-10">
         {children}

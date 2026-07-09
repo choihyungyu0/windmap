@@ -216,6 +216,13 @@ export function PlumeMap(props: PlumeMapProps) {
       new maplibregl.NavigationControl({ visualizePitch: true }),
       "top-left"
     );
+    // 저작자 표시를 ⓘ 아이콘으로 접기 (CARTO 약관상 완전 제거는 불가)
+    map.once("load", () => {
+      map
+        .getContainer()
+        .querySelectorAll("details.maplibregl-ctrl-attrib")
+        .forEach((d) => d.removeAttribute("open"));
+    });
 
     // 지명 한글화 — CARTO 기본 스타일은 로마자(name_en 계열)를 쓰므로,
     // 이름을 그리는 심볼 레이어의 text-field 를 한글 우선으로 교체.

@@ -131,6 +131,14 @@ export function AirMap() {
     });
     map.on("click", (e) => setPick(estimateAt(e.lngLat.lng, e.lngLat.lat)));
 
+    // 저작자 표시를 ⓘ 아이콘으로 접기 (CARTO 약관상 완전 제거는 불가)
+    map.once("load", () => {
+      map
+        .getContainer()
+        .querySelectorAll("details.maplibregl-ctrl-attrib")
+        .forEach((d) => d.removeAttribute("open"));
+    });
+
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
     requestAnimationFrame(() => map.resize());

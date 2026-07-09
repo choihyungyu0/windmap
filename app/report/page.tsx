@@ -8,6 +8,12 @@ import { Reveal } from "@/components/site/reveal";
 import { BreadcrumbJsonLd } from "@/components/site/breadcrumb-jsonld";
 import { ReportSummary } from "@/components/report/report-summary";
 import { ablationExample } from "@/lib/mock";
+import {
+  ChartLegend,
+  CIBar,
+  LineChart,
+  MiniBars,
+} from "@/components/charts/primitives";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/report" },
@@ -49,6 +55,13 @@ interface ValidationReport {
   bootstrap: { median: number; ci95: [number, number]; pLeqZero: number; note: string };
   deltaMethods: { corrAB: number; corrBTrue: number };
   model: string;
+  series?: {
+    note: string;
+    ts: string[];
+    true: number[];
+    b1b: number[];
+    b2: number[];
+  };
 }
 
 async function readValidation(): Promise<ValidationReport | null> {
@@ -128,6 +141,35 @@ export default async function ReportPage() {
                 })}
               </ul>
 
+              {/* 지표별 소형 비교 차트 — RMSE·MAE(낮을수록) / R(높을수록) */}
+              <div className="mt-10 grid gap-8 border-t border-border pt-8 sm:grid-cols-3">
+                {(
+                  [
+                    ["RMSE", "낮을수록 좋음", ladder.map((s) => s.rmse), (v: number) => v.toFixed(1)],
+                    ["MAE", "낮을수록 좋음", ladder.map((s) => s.mae), (v: number) => v.toFixed(1)],
+                    ["R (상관)", "높을수록 좋음", ladder.map((s) => s.r), (v: number) => v.toFixed(2)],
+                  ] as const
+                ).map(([name, hint, values, fmt]) => (
+                  <div key={name}>
+                    <p className="text-sm font-semibold">
+                      {name}{" "}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        · {hint}
+                      </span>
+                    </p>
+                    <div className="mt-3">
+                      <MiniBars
+                        labels={ladder.map((s) => s.id)}
+                        values={values as unknown as number[]}
+                        highlight={ladder.length - 1}
+                        format={fmt}
+                        color="#0e7490"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <p className="mt-8 border-t border-border pt-6 text-sm leading-relaxed">
                 핵심 비교는 <strong className="font-data">B1b → B2</strong>: 보정 모델 적용 시 오차{" "}
                 <strong className="font-data">{improvement}%</strong> 감소
@@ -151,6 +193,77 @@ export default async function ReportPage() {
               </p>
             </div>
           </Reveal>
+
+          {/* 예측 vs 관측 시계열 — "추세를 따라간다"의 시각 증거 */}
+          {real?.series && (
+            <Reveal delay={0.05} className="mt-10">
+              <div className="rounded-xl border border-border p-7 lg:p-9">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <h3 className="font-bold">
+                    예측 vs 관측 —{" "}
+                    <span className="text-muted-foreground">
+                      검증 구간 마지막 96시간
+                    </span>
+                  </h3>
+                  <ChartLegend
+                    items={[
+                      { label: "관측 Δ농도(합성)", color: "#334155" },
+                      { label: "물리 B1b", color: "#94a3b8", dashed: true },
+                      { label: "보정 B2 (제안)", color: "#0e7490" },
+                    ]}
+                  />
+                </div>
+                <div className="mt-6">
+                  <LineChart
+                    series={[
+                      { name: "관측", color: "#334155", data: real.series.true },
+                      { name: "B1b", color: "#94a3b8", data: real.series.b1b, dashed: true },
+                      { name: "B2", color: "#0e7490", data: real.series.b2 },
+                    ]}
+                    yUnit=""
+                    xLabels={real.series.ts
+                      .map((t, i) => [i, t.slice(0, 5)] as [number, string])
+                      .filter(([i]) => (i as number) % 24 === 0)}
+                  />
+                </div>
+                <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+                  보정 B2(청록)가 물리 단독 B1b(회색 점선)보다 관측 피크의 높이와
+                  시점을 가깝게 따라갑니다 — 상관계수 R{" "}
+                  <span className="font-data">
+                    {ladder.find((s) => s.id === "B2")?.r}
+                  </span>
+                  . {real.series.note}. 단위: μg/m³.
+                </p>
+              </div>
+            </Reveal>
+          )}
+
+          {/* 개선율의 불확실성 — 부트스트랩 CI 시각화 */}
+          {real && (
+            <Reveal delay={0.05} className="mt-10">
+              <div className="rounded-xl border border-border p-7 lg:p-9">
+                <h3 className="font-bold">
+                  개선율의 불확실성 —{" "}
+                  <span className="text-muted-foreground">
+                    24h 블록 부트스트랩 95% CI
+                  </span>
+                </h3>
+                <div className="mt-6">
+                  <CIBar
+                    median={real.bootstrap.median}
+                    ci={[real.bootstrap.ci95[0], real.bootstrap.ci95[1]]}
+                    unit="%"
+                    color="#0e7490"
+                  />
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  중앙값 {real.bootstrap.median}% 개선이지만 신뢰구간이 0을
+                  포함합니다 — 이벤트 희소로 통계적 유의성은 아직 미확보이며,
+                  숨기지 않고 보고합니다. {real.bootstrap.note}.
+                </p>
+              </div>
+            </Reveal>
+          )}
 
           {/* 발표용 요약 (F-RPT · LLM 전달 계층) — 실검증 데이터가 있을 때만 */}
           {real && (

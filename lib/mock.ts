@@ -171,9 +171,9 @@ export const ablationExample = {
   caveat: "예시 수치 — P6 검증 배치의 실측 결과로 교체 예정",
   metric: "Δ농도 RMSE (μg/m³)",
   ladder: [
-    { id: "B0", name: "측정소 현재값 (국가 방식)", rmse: 18.2, note: "예측 없음" },
-    { id: "B1a", name: "가우시안 플룸 (정상상태)", rmse: 12.4, note: "물리 기본 성능" },
-    { id: "B1b", name: "가우시안 퍼프 (시간 전파)", rmse: 10.8, note: "도달시각 산출" },
-    { id: "B2", name: "퍼프 + 보정 AI (제안)", rmse: 7.1, note: "AI의 순수 기여" },
+    { id: "B0", name: "측정소 현재값 (국가 방식)", rmse: 18.2, mae: 6.1, r: 0, note: "예측 없음" },
+    { id: "B1a", name: "가우시안 플룸 (정상상태)", rmse: 12.4, mae: 5.2, r: 0.31, note: "물리 기본 성능" },
+    { id: "B1b", name: "가우시안 퍼프 (시간 전파)", rmse: 10.8, mae: 4.4, r: 0.55, note: "도달시각 산출" },
+    { id: "B2", name: "퍼프 + 보정 AI (제안)", rmse: 7.1, mae: 3.2, r: 0.68, note: "AI의 순수 기여" },
   ],
 };

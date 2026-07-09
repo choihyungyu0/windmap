@@ -268,6 +268,14 @@ def run() -> dict:
         },
         "deltaMethods": delta_diag,
         "model": "곱셈형 릿지 보정 (표준 라이브러리 자체 구현) — P6b에서 XGBoost 교체",
+        # 검증창 시계열 샘플(마지막 96h) — /report 라인 차트가 소비
+        "series": {
+            "note": "검증(테스트) 구간 마지막 96시간 — 관측 Δ농도 vs 물리(B1b) vs 보정(B2)",
+            "ts": [r["ts"][5:13].replace("T", " ") for r in test[-96:]],
+            "true": [round(v, 2) for v in target[-96:]],
+            "b1b": [round(v, 2) for v in preds["B1b"][-96:]],
+            "b2": [round(v, 2) for v in preds["B2"][-96:]],
+        },
     }
 
     # 플라이휠 ③: 시민 체감 제보를 정답 라벨로 소비 (있으면)

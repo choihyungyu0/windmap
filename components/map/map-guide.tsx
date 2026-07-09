@@ -30,8 +30,9 @@ export function MapGuide() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
 
-  // 최초 방문 자동 표시 (F-GID-01)
+  // 최초 방문 자동 표시 (F-GID-01) — ?guide=0 이면 억제(데모·스크린샷용)
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("guide") === "0") return;
     if (!localStorage.getItem(SEEN_KEY)) setOpen(true);
   }, []);
 

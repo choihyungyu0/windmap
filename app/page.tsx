@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Navbar } from "@/components/site/navbar";
 import { Footer } from "@/components/site/footer";
 import { Section, SectionHeader } from "@/components/site/section";
@@ -14,18 +15,27 @@ const FEATURES = [
     href: "/map",
     icon: Wind,
     title: "확산 예측 지도",
+    kicker: "Forecast",
+    image: "/images/feature-map.png",
+    imagePos: "object-center",
     desc: "배출원에서 나온 플룸이 바람을 따라 어디로 가는지 실시간으로 계산해 그립니다. 풍향을 돌리면 지도가 바뀝니다.",
   },
   {
     href: "/alerts",
     icon: Siren,
     title: "도달 전 사전 경보",
+    kicker: "Alerts",
+    image: "/images/feature-alerts.png",
+    imagePos: "object-top",
     desc: "학교·병원·경로당에 도달 예상 시각과 함께 선제 알림. “40분 뒤 도달 — 실외활동 조정 권고” 수준의 실행 정보를 줍니다.",
   },
   {
     href: "/air",
     icon: SatelliteDish,
     title: "사각지대 대기질",
+    kicker: "Coverage",
+    image: "/images/feature-air.png",
+    imagePos: "object-center",
     desc: "측정소가 없는 마을도 위성 관측(AOD)으로 상공의 대기질을 추정해 공간 사각지대를 메웁니다.",
   },
 ] as const;
@@ -125,26 +135,60 @@ export default function Home() {
           </div>
         </Section>
 
-        {/* ── 세 가지 핵심 기능 ── */}
+        {/* ── 세 가지 핵심 기능 — 실사 플립 카드 (호버 시 뒤집힘) ── */}
         <Section className="pt-0">
           <div className="grid gap-5 md:grid-cols-3">
             {FEATURES.map((f, i) => (
               <Reveal key={f.href} delay={i * 0.08}>
                 <Link
                   href={f.href}
-                  className="group flex h-full flex-col rounded-xl border border-border p-7 transition-colors hover:border-brand/50"
+                  className="group block h-[26rem] outline-none [perspective:1400px]"
                 >
-                  <f.icon className="size-6 text-brand" aria-hidden />
-                  <h2 className="mt-5 text-xl font-bold">{f.title}</h2>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                    {f.desc}
-                  </p>
-                  <span className="mt-auto pt-6 text-sm font-medium text-brand">
-                    바로가기{" "}
-                    <span className="inline-block transition-transform group-hover:translate-x-1">
-                      →
-                    </span>
-                  </span>
+                  <div className="relative h-full w-full transition-transform duration-700 [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)] group-focus-visible:[transform:rotateY(180deg)] motion-reduce:duration-0">
+                    {/* 앞면 — 실제 서비스 화면 */}
+                    <div className="absolute inset-0 overflow-hidden rounded-xl border border-border bg-[#0b1b2b] [backface-visibility:hidden]">
+                      <Image
+                        src={f.image}
+                        alt={`${f.title} 실제 화면`}
+                        fill
+                        sizes="(min-width: 768px) 33vw, 100vw"
+                        className={`object-cover ${f.imagePos} transition-transform duration-700 group-hover:scale-105`}
+                      />
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          background:
+                            "linear-gradient(to top, rgba(4,14,24,0.92) 0%, rgba(4,14,24,0.35) 38%, rgba(4,14,24,0) 62%)",
+                        }}
+                        aria-hidden
+                      />
+                      <div className="absolute inset-x-0 bottom-0 p-7">
+                        <span className="kicker text-wind">{f.kicker}</span>
+                        <h2 className="mt-2 text-2xl font-bold text-white">
+                          {f.title}
+                        </h2>
+                        <p className="mt-2 text-xs text-white/60">
+                          실제 서비스 화면 · 자세히 보려면 카드에 올려보세요
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 뒷면 — 설명 + 바로가기 */}
+                    <div className="absolute inset-0 flex flex-col rounded-xl border border-wind/25 bg-[#0b1b2b] p-8 text-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                      <f.icon className="size-7 text-wind" aria-hidden />
+                      <span className="kicker mt-6 text-wind">{f.kicker}</span>
+                      <h2 className="mt-2 text-2xl font-bold">{f.title}</h2>
+                      <p className="mt-4 text-sm leading-relaxed text-white/70">
+                        {f.desc}
+                      </p>
+                      <span className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-wind">
+                        바로가기
+                        <span className="inline-block transition-transform group-hover:translate-x-1">
+                          →
+                        </span>
+                      </span>
+                    </div>
+                  </div>
                 </Link>
               </Reveal>
             ))}

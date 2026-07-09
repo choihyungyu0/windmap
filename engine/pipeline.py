@@ -23,6 +23,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from .collectors import airkorea, tms, weather
 from .db import connect, upsert_many
+from .dispersion import predict_all
 from .export import write_status
 from .quality import audit_cycle
 
@@ -44,6 +45,9 @@ def run_cycle(when: datetime, mock: bool) -> dict:
         upsert_many(con, "weather_ts", ["site", "wd", "ws", "temp", "stab", "ts"], results["weather"]["rows"])
         upsert_many(con, "station_ts", ["station_id", "item", "val", "ts"], results["airkorea"]["rows"])
 
+        # 예측 단계 (F-DSP-01/02) — 수집 직후 B1a·B1b 산출·적재
+        predictions = predict_all(con, ts_iso)
+
         issues = audit_cycle(con, ts_iso, results)
         mode = (
             "mock" if all(r["mode"] == "mock" for r in results.values())
@@ -56,9 +60,16 @@ def run_cycle(when: datetime, mock: bool) -> dict:
             "INSERT INTO pipeline_run (ts, mode, ok, summary) VALUES (?,?,?,?)",
             (ts_iso, mode, ok, json.dumps(summary, ensure_ascii=False)),
         )
-        write_status(con, ts_iso, mode, results, issues)
+        write_status(con, ts_iso, mode, results, issues, predictions)
 
-    return {"ts": ts_iso, "mode": mode, "ok": ok, "summary": summary, "issues": issues}
+    return {
+        "ts": ts_iso,
+        "mode": mode,
+        "ok": ok,
+        "summary": summary,
+        "issues": issues,
+        "predictions": predictions,
+    }
 
 
 def main() -> None:

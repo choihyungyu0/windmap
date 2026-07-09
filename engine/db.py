@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS station_ts (
 );
 CREATE INDEX IF NOT EXISTS idx_station ON station_ts (ts);
 
+CREATE TABLE IF NOT EXISTS plume_conc (
+  receptor_id TEXT NOT NULL,
+  item        TEXT NOT NULL,
+  val         REAL,              -- B1a 정상상태 예측 (μg/m³)
+  ts          TEXT NOT NULL,
+  PRIMARY KEY (receptor_id, item, ts)
+);
+
+CREATE TABLE IF NOT EXISTS puff_conc (
+  receptor_id TEXT NOT NULL,
+  item        TEXT NOT NULL,
+  val         REAL,              -- B1b 시간 전파 예측 (μg/m³)
+  arrival     REAL,              -- 도달 예상 (분, 풍상측이면 NULL)
+  ts          TEXT NOT NULL,
+  PRIMARY KEY (receptor_id, item, ts)
+);
+
 CREATE TABLE IF NOT EXISTS quality_log (
   ts        TEXT NOT NULL,
   collector TEXT NOT NULL,

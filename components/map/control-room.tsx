@@ -12,8 +12,12 @@ import {
 } from "react";
 import { LogoMark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
-import { renderPlumeCanvas } from "@/components/map/plume-render";
+import {
+  renderPlumeCanvas,
+  renderPuffCanvas,
+} from "@/components/map/plume-render";
 import { concentrationAt, type Stability } from "@/lib/plume";
+import { arrivalSeconds, puffConcentrationAt } from "@/lib/puff";
 import { offsetToLngLat } from "@/lib/geo";
 import {
   defaultScenario,
@@ -199,6 +203,25 @@ export function ControlRoom({ query }: { query?: string }) {
   const [layers, setLayers] = useState({ plume: true, facilities: true, rings: true });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tilesError, setTilesError] = useState(false);
+  // B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02 · F-MAP-01 시간슬라이더)
+  const [mode, setMode] = useState<"plume" | "puff">("plume");
+  const [tMin, setTMin] = useState(15); // 방출 후 경과(분)
+  const [playing, setPlaying] = useState(false);
+
+  // 재생 — 0.5분/100ms 스텝, 60분 도달 시 정지
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => {
+      setTMin((cur) => {
+        if (cur >= 60) {
+          setPlaying(false);
+          return 60;
+        }
+        return Math.min(60, Math.round((cur + 0.5) * 2) / 2);
+      });
+    }, 100);
+    return () => clearInterval(t);
+  }, [playing]);
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
@@ -212,31 +235,32 @@ export function ControlRoom({ query }: { query?: string }) {
     [q, u, wd, stability]
   );
 
-  // 플룸 래스터 — 입력 변경 즉시 재계산 (F-MAP-02), 지도에 BitmapLayer로 오버레이
-  const plumeCanvas = useMemo(
-    () =>
-      typeof document === "undefined"
-        ? null
-        : renderPlumeCanvas(params, GRID, HALF_EXTENT),
-    [params]
-  );
+  // 농도장 래스터 — 입력 변경 즉시 재계산 (F-MAP-02), 지도에 BitmapLayer로 오버레이
+  const plumeCanvas = useMemo(() => {
+    if (typeof document === "undefined") return null;
+    return mode === "puff"
+      ? renderPuffCanvas(params, GRID, HALF_EXTENT, tMin * 60)
+      : renderPlumeCanvas(params, GRID, HALF_EXTENT);
+  }, [params, mode, tMin]);
 
-  // 수용지점별 도달 농도·근사 도달시각 (라이브) + 경위도
+  // 수용지점별 도달 농도·도달시각 (라이브) + 경위도
+  // 퍼프 모드: T+tMin 시점 농도, 도달시각은 퍼프 중심 통과(정식 산출물)
   const readings = useMemo(() => {
     const bearing = ((params.wd + 180) % 360) * (Math.PI / 180);
     return receptors
       .map((r) => {
-        const conc = concentrationAt(r.ex, r.ny, params);
+        const conc =
+          mode === "puff"
+            ? puffConcentrationAt(r.ex, r.ny, params, tMin * 60)
+            : concentrationAt(r.ex, r.ny, params);
         const downwind = r.ex * Math.sin(bearing) + r.ny * Math.cos(bearing);
-        const etaMin =
-          downwind > 0
-            ? Math.round(downwind / Math.max(params.u, 0.5) / 60)
-            : null;
+        const arrival = arrivalSeconds(downwind, params.u);
+        const etaMin = arrival === null ? null : Math.round(arrival / 60);
         const [lng, lat] = offsetToLngLat(r.ex, r.ny);
         return { ...r, conc, level: gradeOf(conc), downwind, etaMin, lng, lat };
       })
       .sort((a, b) => b.conc - a.conc);
-  }, [params]);
+  }, [params, mode, tMin]);
 
   const selected = selectedId
     ? readings.find((r) => r.id === selectedId) ?? null
@@ -310,6 +334,78 @@ export function ControlRoom({ query }: { query?: string }) {
               ))}
             </select>
           </label>
+
+          {/* 확산 모드 — B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02) */}
+          <div role="group" aria-label="확산 모드" className="border-t border-control-line pt-4">
+            <h2 className="kicker text-control-muted">확산 모드</h2>
+            <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-md border border-control-line p-1">
+              {(
+                [
+                  ["plume", "정상상태", "B1a"],
+                  ["puff", "시간 전파", "B1b"],
+                ] as const
+              ).map(([key, label, tag]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMode(key)}
+                  aria-pressed={mode === key}
+                  className={
+                    "rounded px-2 py-1.5 text-xs font-medium transition-colors " +
+                    (mode === key
+                      ? "bg-wind/20 text-control-text"
+                      : "text-control-muted hover:text-control-text")
+                  }
+                >
+                  {label} <span className="font-data opacity-60">{tag}</span>
+                </button>
+              ))}
+            </div>
+
+            {mode === "puff" && (
+              <div className="mt-3">
+                <span className="flex items-baseline justify-between text-sm">
+                  <span className="text-control-muted">방출 후 경과</span>
+                  <span className="font-data text-control-text">
+                    T+{tMin}
+                    <span className="ml-0.5 text-xs text-control-muted">분</span>
+                  </span>
+                </span>
+                <div className="mt-1.5 flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!playing && tMin >= 60) setTMin(0);
+                      setPlaying((v) => !v);
+                    }}
+                    aria-label={playing ? "일시정지" : "재생"}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-wind/50 text-wind transition-colors hover:bg-wind/10"
+                  >
+                    {playing ? "❚❚" : "▶"}
+                  </button>
+                  <label className="flex-1">
+                    <span className="sr-only">방출 후 경과 시간 (분)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={60}
+                      step={0.5}
+                      value={tMin}
+                      onChange={(e) => {
+                        setPlaying(false);
+                        setTMin(Number(e.target.value));
+                      }}
+                      className="w-full accent-[var(--wind)]"
+                    />
+                  </label>
+                </div>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-control-muted">
+                  퍼프가 바람을 타고 퍼져나가는 과정 — 시설 도달 시각이 모델의
+                  정식 산출물이 됩니다.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* F-MAP-04 레이어 토글 */}
           <div role="group" aria-label="레이어 표시" className="border-t border-control-line pt-4">
@@ -396,7 +492,9 @@ export function ControlRoom({ query }: { query?: string }) {
                 </div>
                 <dl className="mt-3 space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <dt className="text-control-muted">예측 도달 농도</dt>
+                    <dt className="text-control-muted">
+                      {mode === "puff" ? `T+${tMin}분 농도` : "예측 도달 농도"}
+                    </dt>
                     <dd className="font-data">
                       {selected.conc < 0.1 ? "< 0.1" : selected.conc.toFixed(1)} μg/m³
                     </dd>
@@ -432,7 +530,9 @@ export function ControlRoom({ query }: { query?: string }) {
                   </p>
                 )}
                 <p className="mt-2 text-[10px] text-control-muted">
-                  시간별 농도곡선은 퍼프 모델(P3) 연동 시 제공됩니다.
+                  {mode === "puff"
+                    ? "좌측 슬라이더로 시점을 움직여 도달 과정을 확인하세요."
+                    : "‘시간 전파’ 모드로 바꾸면 도달 과정을 시간대별로 볼 수 있습니다."}
                 </p>
               </div>
             )}
@@ -453,10 +553,12 @@ export function ControlRoom({ query }: { query?: string }) {
           </div>
 
           <p className="mt-2 text-xs text-control-muted">
-            가우시안 플룸(B1a) 실시간 계산 · 배경지도 © CARTO / OpenStreetMap.
-            수치는 시뮬레이션이며 실측이 아닙니다. 배출원·시설 위치는 데모용
-            예시 좌표로, 실존 특정 시설을 지칭하지 않습니다. 퍼프 도달시각(P3)
-            연동 예정.
+            {mode === "puff"
+              ? `가우시안 퍼프(B1b) 시간 전파 — 방출 후 T+${tMin}분 시점의 농도장 · 자체 구현.`
+              : "가우시안 플룸(B1a) 정상상태 실시간 계산."}{" "}
+            배경지도 © CARTO / OpenStreetMap. 수치는 시뮬레이션이며 실측이
+            아닙니다. 배출원·시설 위치는 데모용 예시 좌표로, 실존 특정 시설을
+            지칭하지 않습니다.
           </p>
         </section>
 

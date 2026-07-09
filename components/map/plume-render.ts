@@ -1,5 +1,5 @@
 /**
- * 플룸 농도장 → 캔버스 래스터 (클라이언트 전용).
+ * 농도장 → 캔버스 래스터 (클라이언트 전용).
  *
  * 색은 경보 임계값(40/90/180 μg/m³)과 같은 절대 축 — 범례·등급과 항상 일치.
  * deck.gl BitmapLayer의 image 소스로 쓰인다 (HeatmapLayer를 쓰지 않는 이유:
@@ -7,6 +7,7 @@
  */
 
 import { computeGrid, type PlumeParams } from "@/lib/plume";
+import { computePuffGrid } from "@/lib/puff";
 
 /** 농도(μg/m³) → RGBA. 시안(저) → 호박(주의) → 주황(경계) → 적(심각). */
 export function colorFor(c: number): [number, number, number, number] {
@@ -36,13 +37,7 @@ export function colorFor(c: number): [number, number, number, number] {
   return [rgb[0], rgb[1], rgb[2], Math.round(alpha * 255)];
 }
 
-/** 농도장을 계산해 새 캔버스로 반환 — 참조가 바뀌므로 deck.gl이 자동 갱신. */
-export function renderPlumeCanvas(
-  params: PlumeParams,
-  grid: number,
-  halfExtentM: number
-): HTMLCanvasElement {
-  const { data } = computeGrid(params, grid, halfExtentM);
+function gridToCanvas(data: Float32Array, grid: number): HTMLCanvasElement {
   const img = new ImageData(grid, grid);
   for (let i = 0; i < data.length; i++) {
     const [r, g, b, a] = colorFor(data[i]);
@@ -56,4 +51,23 @@ export function renderPlumeCanvas(
   canvas.height = grid;
   canvas.getContext("2d")!.putImageData(img, 0, 0);
   return canvas;
+}
+
+/** 정상상태 플룸(B1a) 래스터 — 참조가 바뀌므로 deck.gl이 자동 갱신. */
+export function renderPlumeCanvas(
+  params: PlumeParams,
+  grid: number,
+  halfExtentM: number
+): HTMLCanvasElement {
+  return gridToCanvas(computeGrid(params, grid, halfExtentM).data, grid);
+}
+
+/** 시간 전파 퍼프(B1b) 래스터 — 방출 후 tSec 시점의 농도장. */
+export function renderPuffCanvas(
+  params: PlumeParams,
+  grid: number,
+  halfExtentM: number,
+  tSec: number
+): HTMLCanvasElement {
+  return gridToCanvas(computePuffGrid(params, grid, halfExtentM, tSec).data, grid);
 }

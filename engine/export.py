@@ -19,6 +19,7 @@ def write_status(
     mode: str,
     results: dict[str, dict],
     issues: list[dict],
+    predictions: list[dict] | None = None,
 ) -> None:
     PUBLIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -43,6 +44,8 @@ def write_status(
         "collectors": counts,
         "issues": issues,
         "dbTotals": totals,
+        # 수용지점별 최신 예측 (B1a 플룸 / B1b 퍼프 / 도달 분)
+        "predictions": predictions or [],
         "note": "AUTO-01 골격 — live 전환은 서비스 키 발급 후(P2b)",
     }
     STATUS_PATH.write_text(

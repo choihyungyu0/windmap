@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { generateText } from "@/lib/llm";
 import { LEVEL_META, type AlertLevel } from "@/lib/mock";
 
 export const runtime = "nodejs";
@@ -54,42 +54,17 @@ export async function POST(req: NextRequest) {
 
   const fallback = templateText(level, body.etaMin);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ ok: true, source: "template", text: fallback });
-  }
+  const prompt =
+    `취약시설 경보 권고문을 작성하세요.\n` +
+    `시설: ${body.name} (${body.type ?? "시설"})\n` +
+    `경보 등급: ${LEVEL_META[level].label}\n` +
+    `예측 도달 농도: ${typeof body.conc === "number" ? `${body.conc} μg/m³` : "미상"}\n` +
+    `도달 예상: ${typeof body.etaMin === "number" ? `약 ${body.etaMin}분 후` : "정보 없음"}`;
 
-  try {
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 1024, // 두 문장 권고문 — 의도적으로 짧은 출력
-      system: SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content:
-            `취약시설 경보 권고문을 작성하세요.\n` +
-            `시설: ${body.name} (${body.type ?? "시설"})\n` +
-            `경보 등급: ${LEVEL_META[level].label}\n` +
-            `예측 도달 농도: ${typeof body.conc === "number" ? `${body.conc} μg/m³` : "미상"}\n` +
-            `도달 예상: ${typeof body.etaMin === "number" ? `약 ${body.etaMin}분 후` : "정보 없음"}`,
-        },
-      ],
-    });
-    const text = msg.content
-      .find((b): b is Anthropic.TextBlock => b.type === "text")
-      ?.text.trim();
-    if (!text) {
-      return NextResponse.json({ ok: true, source: "template", text: fallback });
-    }
-    return NextResponse.json({ ok: true, source: "ai", text });
-  } catch (error) {
-    // 레이트리밋·네트워크 등 어떤 실패든 템플릿 폴백 (명세: 실패시 템플릿)
-    if (error instanceof Anthropic.APIError) {
-      console.warn(`advisory LLM ${error.status}: ${error.message}`);
-    } else {
-      console.warn("advisory LLM 호출 실패", error);
-    }
+  // 키 미설정·호출 실패 등 어떤 경우든 템플릿 폴백 (명세 F-ALT-03)
+  const result = await generateText(SYSTEM, prompt);
+  if (!result) {
     return NextResponse.json({ ok: true, source: "template", text: fallback });
   }
+  return NextResponse.json({ ok: true, source: "ai", text: result.text });
 }

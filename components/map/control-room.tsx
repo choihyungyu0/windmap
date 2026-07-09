@@ -12,6 +12,7 @@ import {
 } from "react";
 import { LogoMark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
+import { EmdExplain } from "@/components/map/emd-explain";
 import {
   renderPlumeCanvas,
   renderPuffCanvas,
@@ -292,6 +293,30 @@ export function ControlRoom({ query }: { query?: string }) {
       ) ?? null
     );
   }, [query, emdGeo]);
+
+  // 검색된 동네의 해설 입력 데이터 — 전부 물리 엔진·기하 계산의 산출물.
+  // LLM은 이 데이터를 받아 설명만 한다 (전달 계층).
+  const explainInput = useMemo(() => {
+    if (!matchedEmd) return null;
+    const [lng, lat] = matchedEmd.properties.centroid;
+    const [ex, ny] = lngLatToOffset(lng, lat);
+    const distanceKm = Math.round((Math.hypot(ex, ny) / 1000) * 10) / 10;
+    const brg = ((Math.atan2(ex, ny) * 180) / Math.PI + 360) % 360;
+    const names = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
+    const direction = names[Math.round(brg / 45) % 8] + "쪽";
+    const plumeBrg = (params.wd + 180) % 360;
+    let diff = Math.abs(brg - plumeBrg);
+    if (diff > 180) diff = 360 - diff;
+    return {
+      emd: matchedEmd.properties.emd,
+      gu: matchedEmd.properties.gu,
+      distanceKm,
+      direction,
+      downwind: diff < 60,
+      wd: params.wd,
+      ws: params.u,
+    };
+  }, [matchedEmd, params]);
 
   // 행정동 위험도 — 각 읍면동 중심점의 정상상태 예측 농도로 등급 산정
   // (시간 슬라이더와 무관한 '이 시나리오의 영향권' 표시 — 채색 안정성)
@@ -649,6 +674,14 @@ export function ControlRoom({ query }: { query?: string }) {
           aria-label="수용지점 도달 현황"
           className="flex flex-col rounded-lg border border-control-line bg-control-surface/60 p-5"
         >
+          {/* 동네 검색 해설 (LLM 전달 계층 · 폴백 템플릿) */}
+          {explainInput && matchedEmd && (
+            <EmdExplain
+              {...explainInput}
+              level={riskByCode[matchedEmd.properties.adm_cd2] ?? "good"}
+            />
+          )}
+
           <h2 className="kicker text-control-muted">취약시설 도달 현황</h2>
           <ul className="mt-4 flex flex-col gap-2.5">
             {readings.map((r) => {

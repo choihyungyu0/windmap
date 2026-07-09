@@ -45,5 +45,9 @@ export const footer = {
     },
   ],
   social: [{ label: "GitHub", href: "#" }],
-  legal: [{ label: "데이터 출처·한계 고지", href: "/about#data" }],
+  legal: [
+    { label: "데이터 출처·한계 고지", href: "/about#data" },
+    // 관리자 진입점 — 상단 네비 대신 푸터 하단에만 노출(로그인으로 보호됨)
+    { label: "관리자", href: "/admin" },
+  ],
 };

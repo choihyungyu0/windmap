@@ -38,11 +38,16 @@ export function HeroFog() {
     };
   }, []);
 
+  // 그라데이션 마스크 — 텍스트(좌측)는 거의 흰 바탕, 우측·상단으로 갈수록 안개.
+  // "벽지"가 아니라 "연출"이 되도록 농도에 방향을 준다.
+  const mask =
+    "linear-gradient(100deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.28) 42%, rgba(0,0,0,0.95) 78%)";
   return (
     <div
       ref={ref}
       aria-hidden
-      className="pointer-events-none absolute inset-0 -z-10 opacity-50"
+      className="pointer-events-none absolute inset-0 -z-10 opacity-60"
+      style={{ maskImage: mask, WebkitMaskImage: mask }}
     />
   );
 }

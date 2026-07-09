@@ -102,7 +102,7 @@ export function Navbar() {
                 type="button"
                 onClick={() => go("/map")}
                 onMouseEnter={() => prefetch("/map")}
-                className="inline-flex rounded-full bg-gradient-to-br from-brand to-[#3b82f6] px-5 py-2.5 text-sm font-semibold text-white transition-[filter,box-shadow] duration-300 hover:brightness-110 hover:shadow-[0_8px_24px_-8px_rgba(37,99,235,0.6)]"
+                className="inline-flex rounded-full bg-gradient-to-br from-brand to-[#00b8d4] px-5 py-2.5 text-sm font-semibold text-white transition-[filter,box-shadow] duration-300 hover:brightness-110 hover:shadow-[0_8px_24px_-8px_rgba(14,116,144,0.6)]"
               >
                 확산 지도 열기
               </button>

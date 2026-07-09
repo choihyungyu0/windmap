@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
         <button
           type="submit"
           disabled={busy || password.length === 0}
-          className="mt-6 w-full rounded-full bg-gradient-to-br from-brand to-[#3b82f6] py-3 text-sm font-semibold text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-6 w-full rounded-full bg-gradient-to-br from-brand to-[#00b8d4] py-3 text-sm font-semibold text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "확인 중…" : "로그인"}
         </button>

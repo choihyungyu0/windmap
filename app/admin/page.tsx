@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin/admin-shell";
+import { KakaoFacilityMap } from "@/components/admin/kakao-facility-map";
 import { concentrationAt } from "@/lib/plume";
+import { offsetToLngLat, SOURCE_LL } from "@/lib/geo";
 import {
   defaultScenario,
   demoHistory,
@@ -199,6 +201,7 @@ export default async function AdminDashboardPage() {
       </section>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex flex-col gap-5">
         {/* 실시간 경보 패널 (F-ADSH-02) */}
         <section
           aria-label="활성 경보"
@@ -242,6 +245,36 @@ export default async function AdminDashboardPage() {
             경보·노출 이력 조회 →
           </Link>
         </section>
+
+        {/* 시설 위치 지도 (카카오맵) — 우측 카드 높이만큼 늘어나 빈 공간을 채움 */}
+        <section
+          aria-label="시설 위치 지도"
+          className="flex flex-1 flex-col rounded-lg border border-control-line bg-control-surface/60 p-5"
+        >
+          <div className="flex items-baseline justify-between">
+            <h2 className="kicker text-control-muted">시설 위치 지도</h2>
+            <span className="text-xs text-control-muted">
+              카카오맵 · 데모용 예시 좌표
+            </span>
+          </div>
+          <KakaoFacilityMap
+            className="mt-4 min-h-[340px] flex-1"
+            source={{ lng: SOURCE_LL.lng, lat: SOURCE_LL.lat, name: source.name }}
+            facilities={readings.map((r) => {
+              const [lng, lat] = offsetToLngLat(r.ex, r.ny);
+              return {
+                id: r.id,
+                name: r.name,
+                type: r.type,
+                lng,
+                lat,
+                level: r.level,
+                conc: r.conc,
+              };
+            })}
+          />
+        </section>
+        </div>
 
         <div className="flex flex-col gap-5">
         {/* 최근 72h 경보 등급 분포 (도넛) */}

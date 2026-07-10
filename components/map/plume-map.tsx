@@ -8,6 +8,7 @@ import {
   BitmapLayer,
   GeoJsonLayer,
   PathLayer,
+  PolygonLayer,
   ScatterplotLayer,
   TextLayer,
 } from "@deck.gl/layers";
@@ -38,7 +39,19 @@ export interface MapReading {
   lng: number;
   lat: number;
   level: AlertLevel;
+  /** 시설 유형 (학교·병원 등) — 3D 뷰의 근사 건물 높이 산정에 사용 */
+  type?: string;
 }
+
+/** OSM 추출 건물 footprint (public/data/buildings_3d.geojson, properties.h = 높이 m) */
+export type BuildingsGeoJson = {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    properties: { h: number };
+    geometry: { type: "Polygon"; coordinates: number[][][] };
+  }[];
+};
 
 /** 읍면동 경계 GeoJSON (properties: emd·adm_cd2·centroid) */
 export type EmdGeoJson = {
@@ -68,6 +81,9 @@ export interface PlumeMapProps {
   wind: { wd: number; ws: number };
   showWind: boolean;
   onTileError: () => void;
+  /** 3D 건물 뷰 — 흰 압출 건물(OSM footprint) + 시설 등급색 블록 */
+  view3d: boolean;
+  buildings: BuildingsGeoJson | null;
 }
 
 // 채색 알파는 낮게 — 진하면 플룸(BitmapLayer)이 위에서 탁하게 눌려
@@ -78,6 +94,29 @@ const RISK_FILL: Record<AlertLevel, [number, number, number, number]> = {
   warn: [234, 88, 12, 55],
   severe: [220, 38, 38, 66],
 };
+
+/** 시설 유형별 근사 건물 높이(m) — 시설 좌표는 데모용이라 실측 아님 */
+const FACILITY_HEIGHT: Record<string, number> = {
+  학교: 15,
+  병원: 30,
+  경로당: 8,
+  주거지: 42,
+};
+
+const M_PER_DEG_LAT = 111_320;
+
+/** 좌표 중심의 근사 사각형 footprint (한 변 2*halfM) */
+function squareFootprint(lng: number, lat: number, halfM: number): [number, number][] {
+  const dLat = halfM / M_PER_DEG_LAT;
+  const dLng = halfM / (M_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180));
+  return [
+    [lng - dLng, lat - dLat],
+    [lng + dLng, lat - dLat],
+    [lng + dLng, lat + dLat],
+    [lng - dLng, lat + dLat],
+    [lng - dLng, lat - dLat],
+  ];
+}
 
 function buildLayers(p: PlumeMapProps): Layer[] {
   const out: Layer[] = [];
@@ -136,6 +175,68 @@ function buildLayers(p: PlumeMapProps): Layer[] {
     );
   }
 
+  // 3D 건물 뷰 — OSM footprint 흰 압출 건물 + 배출원 굴뚝 + 시설 등급색 블록
+  if (p.view3d) {
+    if (p.buildings) {
+      out.push(
+        new GeoJsonLayer({
+          id: "buildings-3d",
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: p.buildings as any,
+          extruded: true,
+          filled: true,
+          stroked: false,
+          getElevation: (f: { properties?: { h?: number } }) =>
+            f.properties?.h ?? 6,
+          getFillColor: [226, 232, 240, 255],
+          material: {
+            ambient: 0.45,
+            diffuse: 0.55,
+            shininess: 24,
+            specularColor: [40, 40, 50],
+          },
+        })
+      );
+    }
+
+    // 배출원 굴뚝 — 시안 기둥
+    out.push(
+      new PolygonLayer({
+        id: "source-stack-3d",
+        data: [SOURCE_LL],
+        getPolygon: () => squareFootprint(SOURCE_LL.lng, SOURCE_LL.lat, 12),
+        extruded: true,
+        getElevation: 70,
+        getFillColor: [0, 184, 212, 220],
+      })
+    );
+
+    if (p.layers.facilities) {
+      out.push(
+        new PolygonLayer<MapReading>({
+          id: "facility-blocks-3d",
+          data: p.readings,
+          pickable: true,
+          getPolygon: (d) => squareFootprint(d.lng, d.lat, 26),
+          extruded: true,
+          getElevation: (d) => FACILITY_HEIGHT[d.type ?? ""] ?? 15,
+          getFillColor: (d) =>
+            [...LEVEL_RGB[d.level], d.id === p.selectedId ? 255 : 215] as [
+              number, number, number, number,
+            ],
+          onClick: (info: PickingInfo<MapReading>) => {
+            if (info.object)
+              p.onSelect(info.object.id === p.selectedId ? null : info.object.id);
+          },
+          updateTriggers: {
+            getFillColor:
+              p.readings.map((r) => r.level).join() + (p.selectedId ?? ""),
+          },
+        })
+      );
+    }
+  }
+
   // 배출원 마커
   out.push(
     new ScatterplotLayer({
@@ -188,6 +289,10 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         getPixelOffset: [0, -18],
         characterSet: "auto",
         fontFamily: "Pretendard, 'Malgun Gothic', sans-serif",
+        // 한글 받침 잘림 방지 — 아틀라스 글리프 여백 확대
+        fontSettings: { buffer: 8 },
+        // 3D 건물에 가려지지 않게 라벨은 깊이 테스트 제외
+        parameters: { depthCompare: "always", depthWriteEnabled: false },
       })
     );
   }
@@ -364,6 +469,23 @@ export function PlumeMap(props: PlumeMapProps) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     };
   }, [props.showWind]);
+
+  // 3D 건물 뷰 전환 — 카메라 기울기·확대 조정 (건물이 보이는 축척으로)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (props.view3d) {
+      map.easeTo({
+        pitch: 60,
+        bearing: 20,
+        zoom: Math.max(map.getZoom(), 12.8),
+        duration: 900,
+      });
+    } else {
+      map.easeTo({ pitch: 45, bearing: 0, duration: 900 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.view3d]);
 
   // 검색 매칭 행정동으로 카메라 이동 (F-SRCH-01)
   const focusKey = props.focus?.key ?? null;

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Navbar } from "@/components/site/navbar";
@@ -69,13 +70,13 @@ export default function Home() {
             <RevealLines
               as="h1"
               richLines={[
-                <>
+                <Fragment key="hero-line-1">
                   이{" "}
                   <span className="bg-gradient-to-r from-[#0e7490] via-[#00b8d4] to-[#22d3ee] bg-clip-text text-transparent">
                     공기
                   </span>
                   는 어디서 와서,
-                </>,
+                </Fragment>,
                 "어디로 갑니까",
               ]}
               className="display mt-6 block text-[clamp(2.6rem,6.5vw,5rem)]"

@@ -20,7 +20,7 @@ import {
 import { concentrationAt, type Stability } from "@/lib/plume";
 import { arrivalSeconds, puffConcentrationAt } from "@/lib/puff";
 import { lngLatToOffset, offsetToLngLat } from "@/lib/geo";
-import type { EmdGeoJson } from "./plume-map";
+import type { BuildingsGeoJson, EmdGeoJson } from "./plume-map";
 import {
   defaultScenario,
   gradeOf,
@@ -42,6 +42,7 @@ const PlumeMap = dynamic(
     ),
   }
 );
+
 
 /* ── 상수 ── */
 const GRID = 160; // 플룸 래스터 격자 (한 변)
@@ -219,6 +220,17 @@ export function ControlRoom({ query }: { query?: string }) {
   }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tilesError, setTilesError] = useState(false);
+  // 2D 확산 지도 ↔ 3D 건물 뷰 (흰 압출 건물 — OSM footprint)
+  const [mapView, setMapView] = useState<"2d" | "3d">("2d");
+  // 건물 footprint (1.3MB) — 3D 뷰 최초 진입 시에만 로드
+  const [buildings, setBuildings] = useState<BuildingsGeoJson | null>(null);
+  useEffect(() => {
+    if (mapView !== "3d" || buildings) return;
+    fetch("/data/buildings_3d.geojson")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setBuildings)
+      .catch(() => setBuildings(null));
+  }, [mapView, buildings]);
   // B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02 · F-MAP-01 시간슬라이더)
   const [mode, setMode] = useState<"plume" | "puff">("plume");
   const [tMin, setTMin] = useState(15); // 방출 후 경과(분)
@@ -584,7 +596,38 @@ export function ControlRoom({ query }: { query?: string }) {
               wind={{ wd: params.wd, ws: params.u }}
               showWind={layers.wind}
               onTileError={onTileError}
+              view3d={mapView === "3d"}
+              buildings={buildings}
             />
+
+            {/* 2D 확산 ↔ 3D 건물 토글 */}
+            <div
+              role="group"
+              aria-label="지도 시점"
+              className="absolute left-3 top-3 z-10 flex gap-1 rounded-md border border-control-line bg-control-bg/85 p-1 backdrop-blur"
+            >
+              {(
+                [
+                  ["2d", "2D 확산"],
+                  ["3d", "3D 건물"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMapView(key)}
+                  aria-pressed={mapView === key}
+                  className={
+                    "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
+                    (mapView === key
+                      ? "bg-wind/20 text-control-text"
+                      : "text-control-muted hover:text-control-text")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
             {/* 배경지도 로드 실패 안내 (오프라인 등) — 플룸 계산은 계속 동작 */}
             {tilesError && (
@@ -661,7 +704,7 @@ export function ControlRoom({ query }: { query?: string }) {
               </div>
             )}
 
-            {/* 범례 */}
+            {/* 범례 (농도장) */}
             <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-md border border-control-line bg-control-bg/85 px-3 py-2 backdrop-blur">
               <div
                 className="h-1.5 w-44 rounded-full"
@@ -681,9 +724,11 @@ export function ControlRoom({ query }: { query?: string }) {
               ? `가우시안 퍼프(B1b) 시간 전파 — 방출 후 T+${tMin}분 시점의 농도장 · 자체 구현.`
               : "가우시안 플룸(B1a) 정상상태 실시간 계산."}{" "}
             배경지도 © CARTO / OpenStreetMap · 행정동 경계: 통계청 행정동
-            기반 공개 데이터. 수치는 시뮬레이션이며 실측이 아닙니다.
-            배출원·시설 위치는 데모용 예시 좌표로, 실존 특정 시설을 지칭하지
-            않습니다.
+            기반 공개 데이터.
+            {mapView === "3d" &&
+              " 3D 건물: OSM footprint 기반 근사 높이 — 시설 건물은 위험 등급 색."}{" "}
+            수치는 시뮬레이션이며 실측이 아닙니다. 배출원·시설 위치는 데모용
+            예시 좌표로, 실존 특정 시설을 지칭하지 않습니다.
           </p>
         </section>
 

@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import maplibregl from "maplibre-gl";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { PickingInfo } from "@deck.gl/core";
-import { GeoJsonLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { GeoJsonLayer, IconLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { concentrationAt } from "@/lib/plume";
-import { lngLatToOffset, SOURCE_LL } from "@/lib/geo";
+import { lngLatToOffset, offsetToLngLat, SOURCE_LL } from "@/lib/geo";
 import {
   defaultReadings,
   defaultScenario,
@@ -22,8 +22,9 @@ import {
  * 등급색을 입힌다. 채색은 경보 4등급 그대로(연속 램프 금지 원칙 유지),
  * 동/건물 클릭 → 관제로 이동.
  *
- * 배경 타일 없음: 로컬 buildings_3d.geojson + cheongju_emd.geojson 만으로
- * 렌더 — 외부 의존이 maplibre/deck 번들뿐이라 오프라인 데모(NFR-4) 무결.
+ * 배경: CARTO positron(밝은 도로 지도) 타일 — 도로·하천·지명이 깔려 실제
+ * 환경 맥락을 준다. 타일 로드 실패 시에도 로컬 geojson 레이어(건물·동 경계·
+ * 핀)는 그대로 렌더되므로 오프라인 데모에서 지도가 비지는 않는다.
  */
 
 type EmdFeature = {
@@ -57,6 +58,30 @@ const GROUND_RGBA: Record<AlertLevel, [number, number, number, number]> = {
   watch: [252, 211, 77, 70],
   warn: [251, 146, 60, 80],
   severe: [239, 68, 68, 90],
+};
+
+// 시설 핀 — 등급색 마커 (흰 테두리 + 흰 중심점, 지도 앱 핀 관례)
+const PIN_HEX: Record<AlertLevel, string> = {
+  good: "#0d9488",
+  watch: "#d97706",
+  warn: "#ea580c",
+  severe: "#dc2626",
+};
+
+function pinDataUrl(hex: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="68" viewBox="0 0 48 68">` +
+    `<path d="M24 2C11.8 2 2 11.8 2 24c0 16.4 22 42 22 42s22-25.6 22-42C46 11.8 36.2 2 24 2z" fill="${hex}" stroke="white" stroke-width="3.5"/>` +
+    `<circle cx="24" cy="24" r="8.5" fill="white"/>` +
+    `</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+const PIN_URL: Record<AlertLevel, string> = {
+  good: pinDataUrl(PIN_HEX.good),
+  watch: pinDataUrl(PIN_HEX.watch),
+  warn: pinDataUrl(PIN_HEX.warn),
+  severe: pinDataUrl(PIN_HEX.severe),
 };
 
 const DIR_NAMES = [
@@ -165,20 +190,31 @@ export function RiskMap3D() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {},
-        layers: [
-          { id: "bg", type: "background", paint: { "background-color": "#e9edf1" } },
-        ],
-      },
+      // 밝은 도로 지도(CARTO positron) — 실패해도 deck 레이어는 그대로 렌더
+      style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
       center: [SOURCE_LL.lng, SOURCE_LL.lat - 0.012], // 남쪽 주의 동까지 한 화면에
       zoom: 11.7,
       pitch: 55,
       bearing: -12,
-      attributionControl: false,
+      attributionControl: { compact: true },
     });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
+
+    // 지명 한글화 — positron 기본은 로마자 우선이라 한글(name:ko → name) 우선으로 교체
+    map.on("style.load", () => {
+      for (const layer of map.getStyle().layers) {
+        if (layer.type !== "symbol") continue;
+        const tf = map.getLayoutProperty(layer.id, "text-field");
+        if (tf && JSON.stringify(tf).includes("name")) {
+          map.setLayoutProperty(layer.id, "text-field", [
+            "coalesce",
+            ["get", "name:ko"],
+            ["get", "name"],
+            ["get", "name_en"],
+          ]);
+        }
+      }
+    });
 
     // 바람 화살표(배출원 → 확산 방향) 지오메트리
     const rad = (((defaultScenario.wd + 180) % 360) * Math.PI) / 180;
@@ -248,6 +284,27 @@ export function RiskMap3D() {
           material: { ambient: 0.5, diffuse: 0.6, shininess: 28, specularColor: [235, 240, 245] },
           pickable: false,
         }),
+        // 배출원 굴뚝 — 시안 기둥 (확산의 출발점을 입체로)
+        new PolygonLayer({
+          id: "src-stack",
+          data: [SOURCE_LL],
+          getPolygon: () => {
+            const half = 14;
+            const dLat = half / M_PER_DEG_LAT;
+            const dLng =
+              half / (M_PER_DEG_LAT * Math.cos((SOURCE_LL.lat * Math.PI) / 180));
+            return [
+              [SOURCE_LL.lng - dLng, SOURCE_LL.lat - dLat],
+              [SOURCE_LL.lng + dLng, SOURCE_LL.lat - dLat],
+              [SOURCE_LL.lng + dLng, SOURCE_LL.lat + dLat],
+              [SOURCE_LL.lng - dLng, SOURCE_LL.lat + dLat],
+            ];
+          },
+          extruded: true,
+          getElevation: 60,
+          elevationScale: 2.2, // 건물 레이어와 동일 과장 배율
+          getFillColor: [14, 116, 144, 235],
+        }),
         // 바람 화살표 — "왜 이 동네가 위험한가"의 인과 표시
         new PathLayer({
           id: "wind-arrow",
@@ -278,6 +335,24 @@ export function RiskMap3D() {
           lineWidthMinPixels: 2.5,
           stroked: true,
         }),
+        // 취약시설 핀 — 등급색 마커, 건물에 가려지지 않게 항상 위
+        new IconLayer({
+          id: "facility-pins",
+          data: scene.readings.map((r) => {
+            const [lng, lat] = offsetToLngLat(r.ex, r.ny);
+            return { position: [lng, lat] as [number, number], level: r.level, name: r.name };
+          }),
+          getPosition: (d) => d.position,
+          getIcon: (d) => ({
+            url: PIN_URL[d.level as AlertLevel],
+            width: 48,
+            height: 68,
+            anchorY: 66,
+          }),
+          getSize: 36,
+          billboard: true,
+          parameters: { depthCompare: "always", depthWriteEnabled: false },
+        }),
         new TextLayer({
           id: "labels",
           data: [
@@ -288,6 +363,16 @@ export function RiskMap3D() {
               color: [31, 41, 55, 255] as [number, number, number, number],
               offset: [0, 0] as [number, number],
             })),
+            // 시설 이름 — 핀 위에
+            ...scene.readings.map((r) => {
+              const [lng, lat] = offsetToLngLat(r.ex, r.ny);
+              return {
+                position: [lng, lat] as [number, number],
+                text: r.name,
+                color: [31, 41, 55, 255] as [number, number, number, number],
+                offset: [0, -46] as [number, number],
+              };
+            }),
           ],
           getPosition: (d) => d.position,
           getText: (d) => d.text,
@@ -295,10 +380,13 @@ export function RiskMap3D() {
           getPixelOffset: (d) => d.offset,
           getSize: 14,
           fontFamily: "Pretendard, sans-serif",
-          fontSettings: { sdf: true },
+          // buffer ≥ radius(12) — 기본 buffer(4)면 한글 받침이 잘려 렌더된다
+          fontSettings: { sdf: true, buffer: 12 },
           outlineWidth: 5,
           outlineColor: [255, 255, 255, 235],
           characterSet: "auto",
+          // 라벨은 깊이 테스트 제외 — 압출 건물·바닥 면에 가려지지 않게 항상 위
+          parameters: { depthCompare: "always", depthWriteEnabled: false },
         }),
       ],
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),

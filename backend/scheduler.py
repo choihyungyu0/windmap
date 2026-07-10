@@ -2,8 +2,8 @@
 AUTO-01 스케줄러 — 30분 주기 상시 수집 루프.
 
 실행:
-  python -m engine.scheduler --mock                 # 30분 주기
-  python -m engine.scheduler --mock --interval 60   # 데모용 60초 주기
+  python -m backend.scheduler --mock                 # 30분 주기
+  python -m backend.scheduler --mock --interval 60   # 데모용 60초 주기
 
 표준 라이브러리만 사용(외부 스케줄러 의존 없음). 사이클 실패는 다음 주기에
 자동 재시도되며, 실패 내역은 quality_log·pipeline_run에 남는다(AUTO-03).

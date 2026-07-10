@@ -2,9 +2,9 @@
 AUTO-01 수집→(예측)→내보내기 1사이클.
 
 실행:
-  python -m engine.pipeline --mock            # 키 없이 완주 (현재 시각 1사이클)
-  python -m engine.pipeline --mock --backfill 72   # 과거 72시간 채우기 (학습 데이터 흉내)
-  python -m engine.pipeline                   # 키 있으면 live, 없으면 mock 폴백
+  python -m backend.pipeline --mock            # 키 없이 완주 (현재 시각 1사이클)
+  python -m backend.pipeline --mock --backfill 72   # 과거 72시간 채우기 (학습 데이터 흉내)
+  python -m backend.pipeline                   # 키 있으면 live, 없으면 mock 폴백
 
 예측 단계(F-DSP-02 퍼프·F-AI-02 보정)는 P3/P6에서 이 파이프라인에 끼워진다 —
 지금은 수집→품질감시→저장→상태 내보내기까지가 골격이다.

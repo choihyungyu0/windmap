@@ -1,20 +1,20 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# dependencies (front — Next.js)
+front/node_modules
 /.pnp
 .pnp.js
 .yarn/install-state.gz
 
 # testing
-/coverage
+front/coverage
 
 # next.js
-/.next/
-/out/
+front/.next/
+front/out/
 
 # production
-/build
+front/build
 
 # misc
 .DS_Store
@@ -39,9 +39,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# engine 생성물 (DB·상태 스냅샷은 커밋하지 않음 — P8에서 데모 스냅샷만 고정)
-engine/*.sqlite
-/public/data/pipeline-status.json
+# backend 생성물 (DB·상태 스냅샷은 커밋하지 않음 — P8에서 데모 스냅샷만 고정)
+backend/*.sqlite
+front/public/data/pipeline-status.json
 __pycache__/
 *.pyc
-engine/citizen-reports.jsonl
+backend/citizen-reports.jsonl

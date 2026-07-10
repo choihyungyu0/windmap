@@ -1,7 +1,7 @@
 """
 시민 체감 제보 소비 (플라이휠 ③단계) — 제보를 '측정소 없는 곳의 정답 라벨'로.
 
-프론트(/api/report)가 engine/citizen-reports.jsonl 에 append 한 제보를 읽어
+프론트(/api/report)가 backend/citizen-reports.jsonl 에 append 한 제보를 읽어
 예측↔체감 교차검증 지표를 산출하고 소비 표시(consumed)한다. 실제 재학습에서는
 이 라벨이 보정 모델의 지도 신호가 되며(P6b), 현재 골격은 신뢰 지표까지 산출한다.
 
@@ -14,9 +14,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..config import ENGINE_DIR
+from ..config import BACKEND_DIR
 
-REPORTS_PATH = ENGINE_DIR / "citizen-reports.jsonl"
+REPORTS_PATH = BACKEND_DIR / "citizen-reports.jsonl"
 
 
 def _weight(reporter: str) -> float:

@@ -4,7 +4,7 @@ import path from "path";
 /**
  * 시민 체감 제보 저장 계층 (서버 전용).
  *
- * primary: engine/citizen-reports.jsonl (로컬 파일 — engine 배치가 바로 소비,
+ * primary: backend/citizen-reports.jsonl (로컬 파일 — backend 배치가 바로 소비,
  * 오프라인 데모 무결). mirror: Supabase citizen_report (배포용, best-effort).
  * 개인정보 미수집 — 시설ID·불리언·예측 스냅샷만 저장 (윤리 XIV·NFR 보안).
  */
@@ -21,10 +21,15 @@ export interface CitizenReport {
   ts: string; // ISO8601
 }
 
-const FILE = path.join(process.cwd(), "engine", "citizen-reports.jsonl");
+// Next 는 front/ 에서 실행되므로 한 단계 위의 backend/ 를 가리킨다
+const FILE = path.join(process.cwd(), "..", "backend", "citizen-reports.jsonl");
 
 export async function saveReport(r: CitizenReport): Promise<void> {
-  await appendFile(FILE, JSON.stringify(r) + "\n", "utf-8");
+  try {
+    await appendFile(FILE, JSON.stringify(r) + "\n", "utf-8");
+  } catch {
+    // 배포 환경(FS 읽기전용·backend 미포함) — Supabase 미러가 primary 역할
+  }
 
   // Supabase 미러 (배포용) — 실패해도 무시 (로컬이 primary)
   const url = process.env.SUPABASE_URL;

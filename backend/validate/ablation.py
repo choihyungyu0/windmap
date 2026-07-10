@@ -15,7 +15,7 @@ F-VAL-01 애블레이션 배치 — 합성 쌍둥이 실험(synthetic twin).
   ⑥ 지표: Δ기준 RMSE·MAE·R + B1b vs B2 윌콕슨 대응검정
   ⑦ public/data/validation-report.json 내보내기 (/report 페이지가 소비)
 
-실행:  python -m engine.validate.ablation
+실행:  python -m backend.validate.ablation
 """
 
 from __future__ import annotations
@@ -183,7 +183,7 @@ def run() -> dict:
     rows = load_series()
     if len(rows) < 100:
         raise SystemExit(
-            f"데이터 부족({len(rows)}시간) — 먼저 python -m engine.pipeline --mock --backfill 240"
+            f"데이터 부족({len(rows)}시간) — 먼저 python -m backend.pipeline --mock --backfill 240"
         )
     synthesize(rows)
     delta_diag = separate_delta(rows)

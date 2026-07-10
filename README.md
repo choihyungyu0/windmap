@@ -16,18 +16,30 @@
 ## 구조
 
 ```
-app/ components/ lib/   # Next.js 15 프론트 (App Router · Tailwind v4)
-  lib/plume.ts          # 클라이언트 가우시안 플룸 엔진 (라이브 데모, 예정)
-engine/                 # Python — 수집·퍼프·보정AI·검증 (예정)
-public/data/            # 사전계산 스냅샷 (오프라인 데모·시각화 데이터, 예정)
+front/                  # 프론트 — Next.js 15 (App Router · Tailwind v4)
+  app/ components/ lib/ # 화면·컴포넌트·클라이언트 로직
+  lib/plume.ts          # 클라이언트 가우시안 플룸 엔진 (라이브 데모)
+  public/data/          # 사전계산 스냅샷 (backend 산출물을 프론트가 소비)
+backend/                # 백엔드 — Python 데이터 파이프라인 (수집·퍼프·보정AI·검증)
+supabase/               # 공용 DB 스키마 (제보 미러·파이프라인 상태)
+docs/                   # 기획·정책 문서
 ```
 
 ## 실행
 
+프론트 (Next.js):
+
 ```bash
+cd front
 npm install
-cp .env.example .env.local   # 값 채우기
-npm run dev
+cp .env.example .env.local   # 값 채우기 (env 파일은 front/ 에 둠)
+npm run dev                  # http://localhost:3000
+```
+
+백엔드 파이프라인 (Python — 레포 루트에서):
+
+```bash
+python -m backend.pipeline --mock    # 1사이클 (키 불필요) — 상세: backend/README.md
 ```
 
 ## 윤리 원칙

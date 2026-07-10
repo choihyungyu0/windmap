@@ -1,8 +1,9 @@
 """
-engine 전역 설정 — 경로·API 키·시범 배출원/측정소 정의.
+backend 전역 설정 — 경로·API 키·시범 배출원/측정소 정의.
 
-외부 패키지 의존 없음(표준 라이브러리만). 키는 프로젝트 루트 .env.local 에서
-읽는다(DATA_GO_KR_SERVICE_KEY). 키가 없으면 수집기는 mock 폴백으로 동작한다.
+외부 패키지 의존 없음(표준 라이브러리만). 키는 front/.env.local 에서
+읽는다(DATA_GO_KR_SERVICE_KEY — Next.js 규약상 env 파일은 front 에 둔다).
+키가 없으면 수집기는 mock 폴백으로 동작한다.
 """
 
 from __future__ import annotations
@@ -11,16 +12,18 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent  # windmap/
-ENGINE_DIR = ROOT / "engine"
-DB_PATH = ENGINE_DIR / "windmap.sqlite"
-PUBLIC_DATA_DIR = ROOT / "public" / "data"
+BACKEND_DIR = Path(__file__).resolve().parent  # windmap/backend/
+DB_PATH = BACKEND_DIR / "windmap.sqlite"
+PUBLIC_DATA_DIR = ROOT / "front" / "public" / "data"
 STATUS_PATH = PUBLIC_DATA_DIR / "pipeline-status.json"
 
 
 def _load_env_local() -> dict[str, str]:
-    """루트 .env.local 단순 파서 (KEY=VALUE, # 주석)."""
+    """front/.env.local 단순 파서 (KEY=VALUE, # 주석). 루트 폴백 지원."""
     env: dict[str, str] = {}
-    p = ROOT / ".env.local"
+    p = ROOT / "front" / ".env.local"
+    if not p.exists():
+        p = ROOT / ".env.local"
     if p.exists():
         for line in p.read_text(encoding="utf-8").splitlines():
             line = line.strip()

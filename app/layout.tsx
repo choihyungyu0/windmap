@@ -68,8 +68,19 @@ export default function RootLayout({
     <html
       lang="ko"
       className={pretendard.variable}
+      // 프리로더 인라인 스크립트가 하이드레이션 전에 .preloader-seen 을
+      // 부여하므로 html 클래스는 의도적으로 서버/클라이언트가 다를 수 있다
+      suppressHydrationWarning
     >
       <body className="antialiased">
+        {/* 재방문 시 프리로더 커튼을 하이드레이션 전에 숨김 — SSR 커튼이 JS
+            로드 동안 콘텐츠를 가리는 플래시 방지 (globals.css .preloader-seen) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{if(sessionStorage.getItem("windmap-preloader")==="1")document.documentElement.classList.add("preloader-seen")}catch(e){}',
+          }}
+        />
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[200] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"

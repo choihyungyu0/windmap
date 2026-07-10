@@ -203,7 +203,7 @@ export function AirMap() {
           className="h-1.5 w-48 rounded-full"
           style={{
             background:
-              "linear-gradient(90deg, #2563eb, #059669 30%, #d97706 55%, #ea580c 75%, #dc2626)",
+              "linear-gradient(90deg, #0d9488, #84cc16 30%, #d97706 55%, #ea580c 75%, #dc2626)",
           }}
         />
         <div className="tnum mt-1 flex w-48 justify-between text-[9px] text-muted-foreground">

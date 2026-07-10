@@ -8,7 +8,8 @@ import { useUiStore } from "@/store/useStore";
 import { LogoMark } from "./logo";
 
 const EASE = [0.76, 0, 0.24, 1] as const;
-const DURATION = 1600;
+// 첫인상이 '기다림'이 되지 않게 짧게 — 카운터 0.9s + 커튼 리프트 0.6s
+const DURATION = 900;
 
 /**
  * Entry preloader: a 0→100 counter with a progress hairline, then the whole
@@ -22,6 +23,8 @@ export function Preloader() {
   const setEntered = useUiStore((s) => s.setEntered);
   const [pct, setPct] = useState(0);
   const [done, setDone] = useState(false);
+  // 스킵(재방문·reduced-motion·admin) — 퇴장 애니메이션 없이 즉시 제거
+  const [skipped, setSkipped] = useState(false);
 
   useEffect(() => {
     // 세션 내 재방문이면 연출 생략 — 본질(콘텐츠) 우선
@@ -32,6 +35,7 @@ export function Preloader() {
       /* storage 차단 환경 — 연출 1회 재생으로 폴백 */
     }
     if (reduce || skip || seen) {
+      setSkipped(true);
       setDone(true);
       return;
     }
@@ -50,7 +54,7 @@ export function Preloader() {
           } catch {
             /* noop */
           }
-        }, 250);
+        }, 150);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -69,6 +73,8 @@ export function Preloader() {
     if (done) setEntered(true);
   }, [done, setEntered]);
 
+  if (skipped) return null;
+
   return (
     <AnimatePresence>
       {!done && (
@@ -76,7 +82,7 @@ export function Preloader() {
           className="preloader-overlay fixed inset-0 z-[150] flex flex-col justify-between bg-background text-foreground"
           initial={{ y: 0 }}
           exit={{ y: "-100%" }}
-          transition={{ duration: 1, ease: EASE }}
+          transition={{ duration: 0.6, ease: EASE }}
         >
           <div className="flex items-center justify-between px-6 py-6 lg:px-10">
             <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">

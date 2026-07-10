@@ -176,13 +176,14 @@ export default async function ReportPage() {
                 {real ? (
                   <span className="text-muted-foreground">
                     {" "}
-                    (검증 {real.testHours}시간 · 학습 {real.trainHours}시간, 시간 분리).
-                    블록 부트스트랩 95% CI{" "}
-                    <span className="font-data">
-                      [{real.bootstrap.ci95[0]}%, {real.bootstrap.ci95[1]}%]
-                    </span>{" "}
-                    — {real.bootstrap.note}. Δ분리 교차확인: 방법 A·B 상관{" "}
-                    <span className="font-data">{real.deltaMethods.corrAB}</span>.
+                    (검증 {real.testHours}시간 · 학습 {real.trainHours}시간, 시간 분리 ·
+                    Δ분리 교차확인 방법 A·B 상관{" "}
+                    <span className="font-data">{real.deltaMethods.corrAB}</span>).
+                    개선율의 신뢰구간과 통계적 유의성은 아래{" "}
+                    <strong className="font-medium text-foreground">
+                      &lsquo;개선율의 불확실성&rsquo;
+                    </strong>
+                    에서 상세히 보고합니다.
                   </span>
                 ) : (
                   <span className="text-muted-foreground">

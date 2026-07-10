@@ -550,7 +550,13 @@ html.lenis body {
   }
 }
 
-/* ── Entry preloader: hidden instantly for reduced-motion ── */
+/* ── Entry preloader ── */
+/* 세션 내 재방문: layout 인라인 스크립트가 부여한 클래스로 첫 페인트부터 숨김 */
+.preloader-seen .preloader-overlay {
+  display: none !important;
+}
+
+/* hidden instantly for reduced-motion */
 @media (prefers-reduced-motion: reduce) {
   .preloader-overlay {
     display: none !important;

@@ -32,11 +32,11 @@ export default function AirPage() {
             <Reveal>
               <div>
                 <AirMap />
-                <p className="mt-3 text-xs text-muted-foreground">
-                  위성 AOD 기반 지상 PM2.5 추정을 부드럽게 보간한 지도 —
-                  위성 공백 추정 모델(P7·F-GAP-01) 연결 시 실제 격자 추정치로
-                  교체됩니다. 색은 한국 대기질 표준(좋음→매우나쁨). 시뮬레이션.
-                </p>
+                <ul className="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+                  <li>· 위성 AOD 기반 지상 PM2.5 추정을 부드럽게 보간 — 시뮬레이션이며, 위성 공백 추정 모델(P7·F-GAP-01) 연결 시 실제 격자 추정치로 교체</li>
+                  <li>· 등급 구간은 한국 대기질 표준(좋음→매우나쁨), 색은 서비스 경보 팔레트와 통일</li>
+                  <li>· 흰 점 = 측정소(실측 앵커) · 지도 클릭 시 해당 지점의 추정값과 신뢰도 표시</li>
+                </ul>
               </div>
             </Reveal>
 
@@ -55,11 +55,10 @@ export default function AirPage() {
                     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{d}</p>
                   </div>
                 ))}
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  위성-지상 융합 추정은 교차검증 상관 0.9 이상이 보고된 확립된
-                  방법론이며, 저궤도 위성의 시간 해상도 한계는 정지궤도(천리안)
-                  병용과 기상 보간으로 보완합니다.
-                </p>
+                <ul className="flex flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
+                  <li>· 위성-지상 융합 추정은 교차검증 상관 0.9 이상이 보고된 확립된 방법론</li>
+                  <li>· 저궤도 위성의 시간 해상도 한계는 정지궤도(천리안) 병용과 기상 보간으로 보완</li>
+                </ul>
               </div>
             </Reveal>
           </div>

@@ -30,23 +30,25 @@ export interface AirCell {
   confidence: number;
 }
 
-/** 한국형 PM2.5 등급 */
+/** 한국형 PM2.5 등급 — 구간은 한국 대기질 표준, 색은 서비스 경보 팔레트와 정합
+ *  (좋음=경보 good 청록 · 나쁨/매우나쁨=경보 warn/severe). 파랑 계열은 브랜드
+ *  청록과 충돌해 제외. */
 export function pmClass(v: number): { label: string; hex: string } {
-  if (v <= 15) return { label: "좋음", hex: "#2563eb" };
-  if (v <= 35) return { label: "보통", hex: "#059669" };
+  if (v <= 15) return { label: "좋음", hex: "#0d9488" };
+  if (v <= 35) return { label: "보통", hex: "#84cc16" };
   if (v <= 75) return { label: "나쁨", hex: "#ea580c" };
   return { label: "매우나쁨", hex: "#dc2626" };
 }
 
-/** PM2.5 → RGBA 연속 보간 (한국 대기질 표준, 단조 증가). */
+/** PM2.5 → RGBA 연속 보간 (등급 앵커색 사이 단조 증가). */
 export function pmColor(v: number): [number, number, number, number] {
   const stops: [number, [number, number, number]][] = [
-    [0, [37, 99, 235]], // 좋음 (파랑)
-    [15, [37, 99, 235]],
-    [35, [16, 185, 129]], // 보통 (청록/초록)
-    [55, [234, 179, 8]], // 나쁨 진입 (노랑)
-    [75, [234, 88, 12]], // 나쁨 (주황)
-    [110, [220, 38, 38]], // 매우나쁨 (빨강)
+    [0, [13, 148, 136]], // 좋음 (청록 — 경보 good)
+    [15, [13, 148, 136]],
+    [35, [132, 204, 22]], // 보통 (라임)
+    [55, [217, 119, 6]], // 나쁨 진입 (호박 — 경보 watch)
+    [75, [234, 88, 12]], // 나쁨 (주황 — 경보 warn)
+    [110, [220, 38, 38]], // 매우나쁨 (빨강 — 경보 severe)
   ];
   let rgb = stops[stops.length - 1][1];
   for (let i = 1; i < stops.length; i++) {

@@ -52,12 +52,21 @@ const BLDG_RGB: Record<AlertLevel, [number, number, number, number]> = {
   severe: [239, 68, 68, 255],
 };
 
-// 바닥(행정동 면) — 은은하게, 건물이 돋보이도록 알파 낮게
+// 바닥(행정동 면) — 면적 큰 농촌 동이 화면을 붉게 뒤덮지 않도록 알파를
+// 낮게 억제. 심각도의 주인공은 건물·핀이고, 면은 '어느 동인지'만 귀띔한다.
 const GROUND_RGBA: Record<AlertLevel, [number, number, number, number]> = {
-  good: [227, 232, 236, 90],
-  watch: [252, 211, 77, 70],
-  warn: [251, 146, 60, 80],
-  severe: [239, 68, 68, 90],
+  good: [227, 232, 236, 70],
+  watch: [252, 211, 77, 34],
+  warn: [251, 146, 60, 40],
+  severe: [239, 68, 68, 44],
+};
+
+// 영향 동 외곽선 — 면 대신 경계선이 등급색을 말한다
+const GROUND_LINE: Record<AlertLevel, [number, number, number, number]> = {
+  good: [255, 255, 255, 220],
+  watch: [217, 119, 6, 230],
+  warn: [234, 88, 12, 235],
+  severe: [220, 38, 38, 240],
 };
 
 // 시설 핀 — 등급색 마커 (흰 테두리 + 흰 중심점, 지도 앱 핀 관례)
@@ -232,18 +241,19 @@ export function RiskMap3D() {
     };
     const arrowTail = at(220);
     const arrowTip = at(1500);
-    const head = 180;
+    // 화살촉 — 핀 디자인과 어울리게 좁고 긴 삼각형 (barb 각을 좁힘)
+    const head = 250;
     const headL: [number, number] = [
-      arrowTip[0] + (Math.sin(rad + 2.6) * head) / (M_PER_DEG_LAT * cosLat),
-      arrowTip[1] + (Math.cos(rad + 2.6) * head) / M_PER_DEG_LAT,
+      arrowTip[0] + (Math.sin(rad + 2.85) * head) / (M_PER_DEG_LAT * cosLat),
+      arrowTip[1] + (Math.cos(rad + 2.85) * head) / M_PER_DEG_LAT,
     ];
     const headR: [number, number] = [
-      arrowTip[0] + (Math.sin(rad - 2.6) * head) / (M_PER_DEG_LAT * cosLat),
-      arrowTip[1] + (Math.cos(rad - 2.6) * head) / M_PER_DEG_LAT,
+      arrowTip[0] + (Math.sin(rad - 2.85) * head) / (M_PER_DEG_LAT * cosLat),
+      arrowTip[1] + (Math.cos(rad - 2.85) * head) / M_PER_DEG_LAT,
     ];
     const tipF: [number, number] = [
-      arrowTip[0] + (dE * head) / (M_PER_DEG_LAT * cosLat),
-      arrowTip[1] + (dN * head) / M_PER_DEG_LAT,
+      arrowTip[0] + (dE * head * 0.9) / (M_PER_DEG_LAT * cosLat),
+      arrowTip[1] + (dN * head * 0.9) / M_PER_DEG_LAT,
     ];
 
     const emdClick = (info: PickingInfo) => {
@@ -263,8 +273,12 @@ export function RiskMap3D() {
           stroked: true,
           getFillColor: (f) =>
             GROUND_RGBA[scene.levelByFeature.get(f as unknown as EmdFeature) ?? "good"],
-          getLineColor: [255, 255, 255, 220],
-          getLineWidth: 26,
+          getLineColor: (f) =>
+            GROUND_LINE[scene.levelByFeature.get(f as unknown as EmdFeature) ?? "good"],
+          getLineWidth: (f) =>
+            (scene.levelByFeature.get(f as unknown as EmdFeature) ?? "good") === "good"
+              ? 26
+              : 64,
           lineWidthMinPixels: 1.2,
           pickable: true,
           onClick: emdClick,
@@ -311,8 +325,8 @@ export function RiskMap3D() {
           data: [{ path: [arrowTail, arrowTip] }],
           getPath: (d) => d.path,
           getColor: [14, 116, 144, 220],
-          getWidth: 34,
-          widthMinPixels: 2.5,
+          getWidth: 26,
+          widthMinPixels: 2,
           capRounded: true,
         }),
         new PolygonLayer({

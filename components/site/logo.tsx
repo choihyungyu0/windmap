@@ -33,7 +33,23 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-/** 정식 로고 (라이트 배경 전용 — 남색 워드마크). 다크 화면은 LogoMark 사용. */
+/** 다크 배경용 정식 로고 — 남색 워드마크를 흰색으로 바꾼 변형. */
+export function LogoDark({ className }: { className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center", className)}>
+      <Image
+        src="/images/logo-dark.png"
+        alt={brand.name}
+        width={434}
+        height={154}
+        priority
+        className="h-8 w-auto"
+      />
+    </span>
+  );
+}
+
+/** 정식 로고 (라이트 배경 전용 — 남색 워드마크). 다크 화면은 LogoDark 사용. */
 export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex items-center", className)}>

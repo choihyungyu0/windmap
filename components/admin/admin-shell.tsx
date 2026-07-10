@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogoMark } from "@/components/site/logo";
+import { LogoDark } from "@/components/site/logo";
 import { AdminNav } from "./admin-nav";
 
 /** 관리자 공통 셸 — 관제 다크 톤. 탭: 관제 / 배출원 / 이력. */
@@ -11,8 +11,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           href="/admin"
           className="flex items-center gap-2 transition-opacity hover:opacity-80"
         >
-          <LogoMark className="h-5 w-5 text-wind" />
-          <span className="font-bold tracking-tight">바람의 지도</span>
+          <LogoDark />
           <span className="rounded border border-control-line px-1.5 py-0.5 text-[10px] font-semibold tracking-widest text-control-muted">
             ADMIN
           </span>

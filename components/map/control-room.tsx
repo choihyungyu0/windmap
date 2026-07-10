@@ -10,7 +10,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { LogoMark } from "@/components/site/logo";
+import { LogoDark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
 import { EmdExplain } from "@/components/map/emd-explain";
 import {
@@ -366,8 +366,7 @@ export function ControlRoom({ query }: { query?: string }) {
           href="/"
           className="flex items-center gap-2 text-control-text transition-opacity hover:opacity-80"
         >
-          <LogoMark className="h-5 w-5 text-wind" />
-          <span className="font-bold tracking-tight">바람의 지도</span>
+          <LogoDark />
         </Link>
         <span className="hidden h-4 w-px bg-control-line sm:block" />
         <h1 className="hidden text-sm font-medium text-control-muted sm:block">

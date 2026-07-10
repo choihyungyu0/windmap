@@ -70,11 +70,13 @@ export interface PlumeMapProps {
   onTileError: () => void;
 }
 
+// 채색 알파는 낮게 — 진하면 플룸(BitmapLayer)이 위에서 탁하게 눌려
+// '땅에 묻힌' 느낌이 난다. 위험도는 은은한 바탕, 주인공은 플룸.
 const RISK_FILL: Record<AlertLevel, [number, number, number, number]> = {
-  good: [13, 148, 136, 14],
-  watch: [217, 119, 6, 70],
-  warn: [234, 88, 12, 95],
-  severe: [220, 38, 38, 115],
+  good: [13, 148, 136, 12],
+  watch: [217, 119, 6, 42],
+  warn: [234, 88, 12, 55],
+  severe: [220, 38, 38, 66],
 };
 
 function buildLayers(p: PlumeMapProps): Layer[] {

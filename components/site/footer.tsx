@@ -1,5 +1,5 @@
 import { brand, footer } from "@/lib/content";
-import { LogoMark } from "./logo";
+import { LogoDark } from "./logo";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -8,12 +8,8 @@ export function Footer() {
       <div className="mx-auto max-w-[100rem]">
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
           <div className="max-w-sm">
-            <div className="flex items-center gap-2.5">
-              <LogoMark className="h-5 w-5" />
-              <span className="text-lg font-bold tracking-tight">
-                {brand.name}
-              </span>
-            </div>
+            <LogoDark />
+
             <p className="mt-4 text-sm leading-relaxed text-white/60">
               {footer.description}
             </p>

@@ -82,16 +82,33 @@ RECEPTORS = [
 # 유효 굴뚝고 표준 가정값 (오픈이슈 O-2)
 STACK_H = 40.0
 
-# 에어코리아 측정소 (검증 기준값). id=에어코리아 실제 측정소명(getMsrstnList addr=충북 확인).
-# 청주 시내 실측 측정소 — 시범배출원 하류 검증용. (충북 전역 34곳은 data/raw 에 별도 확보)
-AIR_STATIONS = [
-    {"id": "봉명동", "name": "봉명동(청주 흥덕)"},
-    {"id": "복대동", "name": "복대동(청주 흥덕)"},
-    {"id": "사천동", "name": "사천동(청주 청원)"},
-    {"id": "오송읍", "name": "오송읍(청주 흥덕)"},
-    {"id": "산남동", "name": "산남동(청주 서원)"},
-    {"id": "오창읍", "name": "오창읍(청주 청원)"},
+# 에어코리아 측정소 (검증 기준값). id=에어코리아 실제 측정소명.
+# 충북 전역 34곳을 data/raw/stations_chungbuk.json(getMsrstnList addr=충북 실측)에서 로드 —
+# 단일 소스. 파일이 없으면 청주 대표 6곳으로 폴백.
+_AIR_FALLBACK = [
+    {"id": "봉명동", "name": "봉명동(청주)"}, {"id": "복대동", "name": "복대동(청주)"},
+    {"id": "사천동", "name": "사천동(청주)"}, {"id": "오송읍", "name": "오송읍(청주)"},
+    {"id": "산남동", "name": "산남동(청주)"}, {"id": "오창읍", "name": "오창읍(청주)"},
 ]
+
+
+def _load_air_stations() -> list[dict]:
+    """충북 전역 측정소 34곳 로드 (stations_chungbuk.json). 실패 시 청주 6곳 폴백."""
+    import json
+    p = BACKEND_DIR / "data" / "raw" / "stations_chungbuk.json"
+    if p.exists():
+        try:
+            st = json.loads(p.read_text(encoding="utf-8"))
+            rows = [{"id": nm, "name": f"{nm}({(m or {}).get('city', '')})"}
+                    for nm, m in st.items()]
+            if rows:
+                return rows
+        except (ValueError, OSError):
+            pass
+    return _AIR_FALLBACK
+
+
+AIR_STATIONS = _load_air_stations()
 
 # ── 실 API 엔드포인트 ──
 # CleanSYS: 스모크 테스트로 확정(rltmMesureResult, areaNm=충청북도, type=json).

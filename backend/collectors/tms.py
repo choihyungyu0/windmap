@@ -16,7 +16,8 @@ live 연동 확정(P2b, 실호출 스모크 테스트 완료):
 from __future__ import annotations
 
 from ..config import CLEANSYS_AREA, CLEANSYS_BASE, SERVICE_KEY, SOURCES, TMS_ITEMS
-from .base import FetchError, http_get_json, mock_emission
+from .base import (FetchError, http_get_json, mock_emission, parse_num,
+                   portal_items, portal_msg, portal_ok)
 
 # TMS 7항목(config.TMS_ITEMS) → CleanSYS 실시간 응답 필드명. dust=먼지=TSP.
 _ITEM_FIELD = {
@@ -30,32 +31,13 @@ _ITEM_FIELD = {
 }
 
 
-def _result_ok(data: dict) -> bool:
-    """공공데이터포털 공통 응답코드(00=정상) 검사."""
-    header = (data.get("response") or {}).get("header") or {}
-    return str(header.get("resultCode", "00")) in ("00", "0")
-
-
-def _items(data: dict) -> list:
-    """response.body.items 추출 (list / {item:[...]} 양형 방어)."""
-    body = (data.get("response") or {}).get("body") or {}
-    items = body.get("items") or []
-    if isinstance(items, dict):
-        items = items.get("item") or []
-    return items
-
-
 def _parse_val(raw) -> tuple[float, int]:
     """실측 문자열 → (값, 운영상태). 숫자=가동(1), 상태문자열·결측=정지·무효(0).
 
     "측정자료확인중(가동중지)"·"보수중" 등은 정지/무효로 op_status=0 → mock 과 동일하게
     가동/정지 자연실험(검증 방법 A) 신호로 쓰인다. 상세 품질 플래그는 quality.py 담당."""
-    if raw is None:
-        return 0.0, 0
-    try:
-        return round(float(str(raw).strip()), 2), 1
-    except ValueError:
-        return 0.0, 0
+    v = parse_num(raw)
+    return (round(v, 2), 1) if v is not None else (0.0, 0)
 
 
 def collect(ts_epoch: float, ts_iso: str, mock: bool) -> dict:
@@ -75,12 +57,9 @@ def collect(ts_epoch: float, ts_iso: str, mock: bool) -> dict:
             f"{CLEANSYS_BASE}/rltmMesureResult",
             {"serviceKey": SERVICE_KEY, "type": "json", "areaNm": CLEANSYS_AREA},
         )
-        if not _result_ok(data):
-            header = (data.get("response") or {}).get("header") or {}
-            raise FetchError(
-                f"CleanSYS resultCode={header.get('resultCode')} {header.get('resultMsg')}"
-            )
-        items = _items(data)
+        if not portal_ok(data):
+            raise FetchError(f"CleanSYS {portal_msg(data)}")
+        items = portal_items(data)
         if not items:
             return {"rows": [], "mode": "live", "message": "CleanSYS 스냅샷 items 비어있음 — 스테일 유지"}
 

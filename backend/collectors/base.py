@@ -38,6 +38,41 @@ def http_get_json(base: str, params: dict[str, str]) -> dict:
     raise FetchError(f"{RETRY_COUNT}회 재시도 실패: {last}") from last
 
 
+# ── 공공데이터포털 공통 응답 헬퍼 ──
+
+def portal_ok(data: dict) -> bool:
+    """공통 응답코드(header.resultCode) 00/0=정상 검사."""
+    header = (data.get("response") or {}).get("header") or {}
+    return str(header.get("resultCode", "00")) in ("00", "0")
+
+
+def portal_msg(data: dict) -> str:
+    header = (data.get("response") or {}).get("header") or {}
+    return f"resultCode={header.get('resultCode')} {header.get('resultMsg')}"
+
+
+def portal_items(data: dict) -> list:
+    """response.body.items 추출 — list / {item:[...]} 양형 방어."""
+    body = (data.get("response") or {}).get("body") or {}
+    items = body.get("items") or []
+    if isinstance(items, dict):
+        items = items.get("item") or []
+    return items if isinstance(items, list) else [items]
+
+
+def parse_num(raw) -> float | None:
+    """실측 문자열 → float. 결측('-'·''·None·비수치)은 None."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s in ("", "-"):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
 # ── 결정적 mock 시그널 ──
 
 def _h(ts_epoch: float) -> float:

@@ -40,16 +40,30 @@ SERVICE_KEY: str = os.environ.get(
     "DATA_GO_KR_SERVICE_KEY", _ENV.get("DATA_GO_KR_SERVICE_KEY", "")
 )
 
-# ── 시범 대상 정의 (오픈이슈 #1 확정 전 임시 — CleanSYS 충북 등재 확인 후 교체) ──
-# 좌표는 lib/mock.ts 의 시범 배출원과 정합.
+# ── 시범 배출원 (오픈이슈 #1 확정 — CleanSYS 실시간 실측 + VWorld 지오코딩 좌표) ──
+# CleanSYS rltmMesureResult(areaNm=충청북도) 응답의 fact_manage_nm/stack_code 로 매칭한다.
+# lat/lon 은 시설 실주소 지오코딩 실좌표. 첫 항목(소각장)이 시범 주배출원.
 SOURCES = [
     {
-        "id": "s1",
-        "name": "시범 배출원 A (소각시설)",
-        "lat": 36.72,
-        "lon": 127.49,
-        # CleanSYS 사업장 식별자 — 키 발급 후 스모크 테스트에서 확정 (P2b)
-        "cleansys_fact_id": None,
+        "id": "cheongju_inc",
+        "name": "청주시 생활폐기물처리시설(소각)",
+        "lat": 36.624098, "lon": 127.404721,
+        "cleansys_fact_nm": "청주시 생활폐기물처리시설",
+        "cleansys_stack_code": "2",
+    },
+    {
+        "id": "kleannara",
+        "name": "깨끗한나라 청주공장",
+        "lat": 36.593287, "lon": 127.339334,
+        "cleansys_fact_nm": "깨끗한나라㈜ 청주공장",
+        "cleansys_stack_code": "6",
+    },
+    {
+        "id": "env_hq",
+        "name": "청주시환경관리본부(하수처리)",
+        "lat": 36.663603, "lon": 127.394081,
+        "cleansys_fact_nm": "청주시환경관리본부(하수처리과)",
+        "cleansys_stack_code": "1",
     },
 ]
 
@@ -68,15 +82,24 @@ RECEPTORS = [
 # 유효 굴뚝고 표준 가정값 (오픈이슈 O-2)
 STACK_H = 40.0
 
-# 에어코리아 측정소 (검증 기준값 — 배출원 하류 후보, P2b에서 풍향 분석 후 확정)
+# 에어코리아 측정소 (검증 기준값). id=에어코리아 실제 측정소명(getMsrstnList addr=충북 확인).
+# 청주 시내 실측 측정소 — 시범배출원 하류 검증용. (충북 전역 34곳은 data/raw 에 별도 확보)
 AIR_STATIONS = [
-    {"id": "송정동", "name": "송정동(청주)"},
-    {"id": "사천동", "name": "사천동(청주)"},
+    {"id": "봉명동", "name": "봉명동(청주 흥덕)"},
+    {"id": "복대동", "name": "복대동(청주 흥덕)"},
+    {"id": "사천동", "name": "사천동(청주 청원)"},
+    {"id": "오송읍", "name": "오송읍(청주 흥덕)"},
+    {"id": "산남동", "name": "산남동(청주 서원)"},
+    {"id": "오창읍", "name": "오창읍(청주 청원)"},
 ]
 
-# ── 실 API 엔드포인트 후보 (⚠ 키 발급 후 스모크 테스트로 확정 — P2b) ──
-# 공공데이터포털 게이트웨이 기준. 파라미터·응답 스키마는 실호출로 검증한다.
-CLEANSYS_BASE = "https://apis.data.go.kr/B552584/StackTotalService"
+# ── 실 API 엔드포인트 ──
+# CleanSYS: 스모크 테스트로 확정(rltmMesureResult, areaNm=충청북도, type=json).
+#   ⚠ 기존 후보 StackTotalService/getUnityDayAvgInfo(사업장별)는 실동작 미확인 →
+#     실시간 전역 조회가 되는 cleansys/rltmMesureResult 로 교체.
+# ASOS·에어코리아는 P2b에서 weather.py·airkorea.py 연동 시 함께 확정.
+CLEANSYS_BASE = "https://apis.data.go.kr/B552584/cleansys"
+CLEANSYS_AREA = "충청북도"   # rltmMesureResult areaNm — 도 전역 1회 조회
 ASOS_BASE = "https://apis.data.go.kr/1360000/AsosHourlyInfoService"
 AIRKOREA_BASE = "https://apis.data.go.kr/B552584/ArpltnInforInqireSvc"
 

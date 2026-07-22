@@ -8,7 +8,7 @@ import { Reveal, RevealLines } from "@/components/site/reveal";
 import { SearchEntry } from "@/components/site/search-entry";
 import { HeroFog } from "@/components/site/hero-fog";
 import { CitizenChat } from "@/components/site/citizen-chat";
-import { defaultReadings, LEVEL_META } from "@/lib/mock";
+import { readSnapshotServer } from "@/lib/chungbuk-server";
 import { Wind, Siren, SatelliteDish, FlaskConical } from "lucide-react";
 
 const FEATURES = [
@@ -37,7 +37,7 @@ const FEATURES = [
     kicker: "Coverage",
     image: "/images/feature-air.png",
     imagePos: "object-center",
-    desc: "측정소가 없는 마을도 위성 관측(AOD)으로 상공의 대기질을 추정해 공간 사각지대를 메웁니다.",
+    desc: "측정소가 없는 마을도 인근 측정소 실측을 공간 보간(IDW)해 대기질을 추정, 사각지대를 메웁니다.",
   },
 ] as const;
 
@@ -48,11 +48,21 @@ const PRINCIPLES = [
   ["③ 공백 추정 AI (위성)", "위성 AOD로 측정소 없는 마을의 대기질까지 추정"],
 ] as const;
 
-export default function Home() {
-  // F-SRCH-02 내 주변 위험 요약(간이판) — 시범 구역 기본 시나리오의 현재 상태
-  const readings = defaultReadings();
-  const active = readings.filter((r) => r.level !== "good");
-  const worst = readings[0];
+export default async function Home() {
+  // 충북 실시간 요약 — 최신 시각 배출 현황 (실데이터 스냅샷)
+  const snap = await readSnapshotServer();
+  let emittingNow = 0;
+  let topEmitter: string | null = null;
+  let facilityCount = 59;
+  if (snap) {
+    const t = snap.n - 1;
+    const em = snap.facilities
+      .map((f, fi) => ({ name: f.name, E: snap.emis.NOx[fi][t] ?? 0 }))
+      .sort((a, b) => b.E - a.E);
+    emittingNow = em.filter((e) => e.E > 0).length;
+    topEmitter = em[0]?.name ?? null;
+    facilityCount = snap.facilities.length;
+  }
 
   return (
     <>
@@ -96,40 +106,27 @@ export default function Home() {
             </Reveal>
             <Reveal delay={0.3}>
               <p className="mt-4 text-xs text-muted-foreground">
-                시범 지역: 청주시 (배출원 1~3개소) · 데이터: 전 항목 공개 데이터
+                대상 지역: 충청북도 전역 · 배출 굴뚝 {facilityCount}개소 · 데이터: 전 항목 공개 데이터
               </p>
             </Reveal>
 
             {/* F-SRCH-02 시범 구역 현재 요약 카드 */}
             <Reveal delay={0.35}>
               <Link
-                href="/alerts"
+                href="/map"
                 className="mt-8 inline-flex max-w-xl flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border px-6 py-4 transition-colors hover:border-brand/50"
               >
-                <span className="kicker text-muted-foreground">
-                  시범 구역 현재
-                </span>
+                <span className="kicker text-muted-foreground">충북 실시간</span>
                 <span className="text-sm font-semibold">
-                  활성 경보 <span className="tnum">{active.length}</span>건
+                  배출 중 굴뚝 <span className="tnum">{emittingNow}</span>곳
                 </span>
-                {worst && worst.level !== "good" && (
+                {topEmitter && (
                   <span className="text-sm text-muted-foreground">
-                    최고 위험: {worst.name}{" "}
-                    <span
-                      className={`font-semibold ${
-                        {
-                          watch: "text-alert-watch",
-                          warn: "text-alert-warn",
-                          severe: "text-alert-severe",
-                        }[worst.level]
-                      }`}
-                    >
-                      {LEVEL_META[worst.level].symbol} {LEVEL_META[worst.level].label}
-                    </span>
+                    최다 배출: <span className="font-medium text-foreground">{topEmitter}</span>
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground">
-                  시뮬레이션 · 자세히 →
+                  실배출 근사 · 자세히 →
                 </span>
               </Link>
             </Reveal>

@@ -2,17 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { KakaoFacilityMap } from "@/components/admin/kakao-facility-map";
-import { concentrationAt } from "@/lib/plume";
-import { offsetToLngLat, SOURCE_LL } from "@/lib/geo";
-import {
-  defaultScenario,
-  demoHistory,
-  gradeOf,
-  LEVEL_META,
-  receptors,
-  source,
-  sourceCandidates,
-} from "@/lib/mock";
+import { readSnapshotServer } from "@/lib/chungbuk-server";
+import { pmClass } from "@/lib/air-grid";
 import { Donut, WindRose } from "@/components/charts/primitives";
 import { MODE_LABEL, readPipelineStatus } from "@/lib/pipeline-status";
 import { reportStats } from "@/lib/reports";
@@ -25,6 +16,13 @@ export const metadata: Metadata = {
 // 파이프라인 상태 파일을 요청마다 읽는다 (빌드 시점 고정 방지)
 export const dynamic = "force-dynamic";
 
+/** 배출 강도(현재 최대 대비) → 등급색 (건강영향 아님, 배출량 상대 표시) */
+function emitLevel(share: number): "good" | "watch" | "warn" | "severe" {
+  if (share >= 0.5) return "severe";
+  if (share >= 0.2) return "warn";
+  if (share >= 0.05) return "watch";
+  return "good";
+}
 const LEVEL_BG: Record<string, string> = {
   good: "var(--alert-good)",
   watch: "var(--alert-watch)",
@@ -32,59 +30,113 @@ const LEVEL_BG: Record<string, string> = {
   severe: "var(--alert-severe)",
 };
 
-/** ADM-DSH 관제 대시보드 (F-ADSH-01/02) — 기본 시나리오 플룸 실계산 집계.
+/** ADM-DSH 관제 대시보드 — 충북 전역 실배출(CleanSYS TMS)·실측(에어코리아) 집계.
  *  실시간 스트림(WS) 연동은 P7. */
 export default async function AdminDashboardPage() {
-  const pipeline = await readPipelineStatus();
-  const reports = await reportStats();
-  const p = { ...defaultScenario, h: source.stackHeight };
-  const readings = receptors
-    .map((r) => {
-      const conc = concentrationAt(r.ex, r.ny, p);
-      return { ...r, conc, level: gradeOf(conc) };
-    })
-    .sort((a, b) => b.conc - a.conc);
-  const active = readings.filter((r) => r.level !== "good");
-  const worst = readings[0];
+  const [snap, pipeline, reports] = await Promise.all([
+    readSnapshotServer(),
+    readPipelineStatus(),
+    reportStats(),
+  ]);
 
-  // 최근 72h 경보 등급 분포 (도넛) + 경보 발생 풍향 분포 (바람 장미)
-  const hist = demoHistory(72);
-  const histCounts = { watch: 0, warn: 0, severe: 0 };
-  const windBins = new Array(16).fill(0) as number[];
-  for (const h of hist) {
-    if (h.level !== "good") histCounts[h.level]++;
-    windBins[Math.round(h.wd / 22.5) % 16]++;
+  if (!snap) {
+    return (
+      <AdminShell>
+        <h1 className="text-2xl font-bold">관제 대시보드</h1>
+        <p className="mt-6 rounded-lg border border-control-line bg-control-surface/60 p-6 text-sm text-control-muted">
+          실데이터 스냅샷(chungbuk.json)이 없습니다 —{" "}
+          <code className="font-data">python backend/data/build_snapshot.py</code> 실행 후
+          새로고침하세요.
+        </p>
+      </AdminShell>
+    );
   }
+
+  const t = snap.n - 1; // 최신 시각
+  const POL = "NOx" as const;
+
+  // 현재 시각 시설별 배출 (내림차순)
+  const emitters = snap.facilities
+    .map((f, fi) => ({
+      id: String(fi),
+      name: f.name,
+      city: f.city,
+      lng: f.lon,
+      lat: f.lat,
+      E: snap.emis[POL][fi][t] ?? 0,
+    }))
+    .sort((a, b) => b.E - a.E);
+  const emittingNow = emitters.filter((e) => e.E > 0).length;
+  const worst = emitters[0];
+  const emisMax = worst?.E || 1;
+
+  // 관측 풍향 분포 (전 시군·전 기간 — 관측 풍배도)
+  const windBins = new Array(16).fill(0) as number[];
+  for (const w of Object.values(snap.wind)) {
+    for (const wd of w.wd) {
+      if (wd != null) windBins[Math.round(wd / 22.5) % 16]++;
+    }
+  }
+
+  // 측정소 대기질 등급 분포 (현재 시각 · PM2.5)
+  const grades = { 좋음: 0, 보통: 0, 나쁨: 0, 매우나쁨: 0 } as Record<string, number>;
+  for (let si = 0; si < snap.stations.length; si++) {
+    const v = snap.meas.PM25[si][t];
+    if (v != null) grades[pmClass(v).label]++;
+  }
+  const gradeHex: Record<string, string> = {
+    좋음: "#0d9488",
+    보통: "#84cc16",
+    나쁨: "#ea580c",
+    매우나쁨: "#dc2626",
+  };
+
+  // 시군별 현재 배출 합계 (NOx)
+  const byCity = new Map<string, number>();
+  for (const e of emitters) byCity.set(e.city, (byCity.get(e.city) ?? 0) + e.E);
+  const cityEmission = [...byCity.entries()].sort((a, b) => b[1] - a[1]);
 
   const cards = [
     {
-      label: "감시 배출원",
-      value: `${sourceCandidates.filter((s) => s.active).length} / ${sourceCandidates.length}`,
-      note: pipeline ? "TMS 수집 파이프라인 가동" : "TMS 수집 연동 P2 예정",
+      label: "배출 중 굴뚝 (현재)",
+      value: `${emittingNow} / ${snap.facilities.length}`,
+      note: "CleanSYS TMS 실시간 배출",
     },
     {
-      label: "활성 경보",
-      value: String(active.length),
-      note: active.map((a) => LEVEL_META[a.level].label).join(" · ") || "없음",
+      label: `최다 배출 · ${POL}`,
+      value: `${worst.E.toFixed(1)} g/s`,
+      note: worst.name,
     },
     {
-      label: "감시 취약시설",
-      value: String(receptors.length),
-      note: "학교·병원·경로당·주거지",
+      label: "대기측정소",
+      value: String(snap.stations.length),
+      note: "에어코리아 실측 (PM2.5·NO₂·SO₂)",
     },
     {
-      label: "현재 시나리오",
-      value: `${p.wd}° · ${p.u} m/s`,
-      note: `배출률 ${p.q} g/s · 안정도 ${p.stability}`,
+      label: "실측 기간",
+      value: `${snap.n}h`,
+      note: `${snap.times[0]} ~ ${snap.times[snap.n - 1]}`,
     },
   ];
+
+  const mapFacilities = emitters
+    .filter((e) => e.E > 0)
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      type: e.city,
+      lng: e.lng,
+      lat: e.lat,
+      level: emitLevel(e.E / emisMax),
+      conc: e.E,
+    }));
 
   return (
     <AdminShell>
       <div className="flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-bold">관제 대시보드</h1>
         <span className="rounded-full border border-control-line px-3 py-1 text-xs text-control-muted">
-          시범 모드 · 시뮬레이션 데이터
+          충북 실배출 · 실측 데이터
         </span>
       </div>
 
@@ -126,18 +178,21 @@ export default async function AdminDashboardPage() {
           </>
         ) : (
           <span className="text-xs text-control-muted">
-            engine 파이프라인 실행 전 — <code className="font-data">python -m engine.pipeline --mock</code>
+            engine 파이프라인 실행 전 —{" "}
+            <code className="font-data">python -m backend.pipeline --mock</code>
           </span>
         )}
       </section>
 
-      {/* 요약 지표 (F-ADSH-01) */}
+      {/* 요약 지표 */}
       <section aria-label="요약 지표" className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-lg border border-control-line bg-control-surface/60 p-5">
             <p className="text-xs text-control-muted">{c.label}</p>
             <p className="font-data mt-2 text-2xl font-semibold">{c.value}</p>
-            <p className="mt-1.5 text-xs text-control-muted">{c.note}</p>
+            <p className="mt-1.5 truncate text-xs text-control-muted" title={c.note}>
+              {c.note}
+            </p>
           </div>
         ))}
       </section>
@@ -154,7 +209,6 @@ export default async function AdminDashboardPage() {
           </span>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-8">
-          {/* 체감 응답 구성 도넛 */}
           <div className="flex items-center gap-4">
             <Donut
               size={104}
@@ -202,162 +256,136 @@ export default async function AdminDashboardPage() {
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div className="flex flex-col gap-5">
-        {/* 실시간 경보 패널 (F-ADSH-02) */}
-        <section
-          aria-label="활성 경보"
-          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
-        >
-          <div className="flex items-baseline justify-between">
-            <h2 className="kicker text-control-muted">활성 경보</h2>
-            <span className="text-xs text-control-muted">WS 실시간 갱신 — P7 연동</span>
-          </div>
-          {active.length === 0 ? (
-            <p className="mt-6 text-sm text-control-muted">현재 활성 경보가 없습니다.</p>
-          ) : (
+          {/* 현재 상위 배출 시설 */}
+          <section
+            aria-label="현재 상위 배출 시설"
+            className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2 className="kicker text-control-muted">현재 상위 배출 시설 · {POL}</h2>
+              <span className="text-xs text-control-muted">{snap.times[t]} 기준</span>
+            </div>
             <ul className="mt-4 flex flex-col gap-2.5">
-              {active.map((a) => (
+              {emitters.slice(0, 8).map((e) => (
                 <li
-                  key={a.id}
+                  key={e.id}
                   className="flex items-center gap-3 rounded-md border border-control-line bg-control-bg/50 px-4 py-3"
                 >
                   <span
                     className="flex h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: LEVEL_BG[a.level] }}
+                    style={{ background: LEVEL_BG[emitLevel(e.E / emisMax)] }}
                     aria-hidden
                   />
-                  <span className="text-sm font-medium">{a.name}</span>
-                  <span className="text-xs text-control-muted">{a.type}</span>
-                  <span className="font-data ml-auto text-sm">
-                    {a.conc.toFixed(1)}
-                    <span className="ml-1 text-[10px] text-control-muted">μg/m³</span>
+                  <span className="truncate text-sm font-medium" title={e.name}>
+                    {e.name}
                   </span>
-                  <span className="text-xs font-semibold" style={{ color: LEVEL_BG[a.level] }}>
-                    {LEVEL_META[a.level].symbol} {LEVEL_META[a.level].label}
+                  <span className="shrink-0 text-xs text-control-muted">{e.city}</span>
+                  <span className="font-data ml-auto shrink-0 text-sm">
+                    {e.E.toFixed(2)}
+                    <span className="ml-1 text-[10px] text-control-muted">g/s</span>
                   </span>
                 </li>
               ))}
             </ul>
-          )}
-          <Link
-            href="/admin/history"
-            className="mt-5 inline-block text-sm text-wind underline-offset-4 hover:underline"
-          >
-            경보·노출 이력 조회 →
-          </Link>
-        </section>
+            <Link
+              href="/admin/history"
+              className="mt-5 inline-block text-sm text-wind underline-offset-4 hover:underline"
+            >
+              배출 이력 조회 →
+            </Link>
+          </section>
 
-        {/* 시설 위치 지도 (카카오맵) — 우측 카드 높이만큼 늘어나 빈 공간을 채움 */}
-        <section
-          aria-label="시설 위치 지도"
-          className="flex flex-1 flex-col rounded-lg border border-control-line bg-control-surface/60 p-5"
-        >
-          <div className="flex items-baseline justify-between">
-            <h2 className="kicker text-control-muted">시설 위치 지도</h2>
-            <span className="text-xs text-control-muted">
-              카카오맵 · 데모용 예시 좌표
-            </span>
-          </div>
-          <KakaoFacilityMap
-            className="mt-4 min-h-[340px] flex-1"
-            source={{ lng: SOURCE_LL.lng, lat: SOURCE_LL.lat, name: source.name }}
-            facilities={readings.map((r) => {
-              const [lng, lat] = offsetToLngLat(r.ex, r.ny);
-              return {
-                id: r.id,
-                name: r.name,
-                type: r.type,
-                lng,
-                lat,
-                level: r.level,
-                conc: r.conc,
-              };
-            })}
-          />
-        </section>
+          {/* 시설 위치 지도 (카카오맵) — 충북 전역 실좌표 */}
+          <section
+            aria-label="시설 위치 지도"
+            className="flex flex-1 flex-col rounded-lg border border-control-line bg-control-surface/60 p-5"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2 className="kicker text-control-muted">배출 굴뚝 위치 · 충북 전역</h2>
+              <span className="text-xs text-control-muted">실좌표 (VWorld 지오코딩)</span>
+            </div>
+            <KakaoFacilityMap
+              className="mt-4 min-h-[340px] flex-1"
+              facilities={mapFacilities}
+              metricUnit=" g/s"
+            />
+          </section>
         </div>
 
         <div className="flex flex-col gap-5">
-        {/* 최근 72h 경보 등급 분포 (도넛) */}
-        <section
-          aria-label="경보 등급 분포"
-          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
-        >
-          <h2 className="kicker text-control-muted">최근 72시간 경보 등급 분포</h2>
-          <div className="mt-4 flex items-center gap-5">
-            <Donut
-              size={112}
-              thickness={14}
-              segments={[
-                { label: "주의", value: histCounts.watch, color: "var(--alert-watch)" },
-                { label: "경계", value: histCounts.warn, color: "var(--alert-warn)" },
-                { label: "심각", value: histCounts.severe, color: "var(--alert-severe)" },
-              ]}
-              centerLabel={String(histCounts.watch + histCounts.warn + histCounts.severe)}
-              centerSub="건"
-            />
-            <ul className="flex flex-col gap-1.5 text-xs text-control-muted">
-              {(
-                [
-                  ["주의", histCounts.watch, "var(--alert-watch)"],
-                  ["경계", histCounts.warn, "var(--alert-warn)"],
-                  ["심각", histCounts.severe, "var(--alert-severe)"],
-                ] as const
-              ).map(([label, n, c]) => (
-                <li key={label} className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full" style={{ background: c }} />
-                  {label} <span className="font-data">{n}</span>건
+          {/* 측정소 대기질 등급 분포 (현재) */}
+          <section
+            aria-label="측정소 대기질 등급 분포"
+            className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2 className="kicker text-control-muted">측정소 대기질 등급 · PM2.5</h2>
+              <span className="text-xs text-control-muted">{snap.times[t]}</span>
+            </div>
+            <div className="mt-4 flex items-center gap-5">
+              <Donut
+                size={112}
+                thickness={14}
+                segments={Object.entries(grades).map(([label, value]) => ({
+                  label,
+                  value,
+                  color: gradeHex[label],
+                }))}
+                centerLabel={String(snap.stations.length)}
+                centerSub="측정소"
+              />
+              <ul className="flex flex-col gap-1.5 text-xs text-control-muted">
+                {Object.entries(grades).map(([label, n]) => (
+                  <li key={label} className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full" style={{ background: gradeHex[label] }} />
+                    {label} <span className="font-data">{n}</span>곳
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+
+          {/* 관측 풍향 분포 (바람 장미) */}
+          <section
+            aria-label="관측 풍향 분포"
+            className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+          >
+            <div className="flex items-baseline justify-between">
+              <h2 className="kicker text-control-muted">관측 풍향 분포</h2>
+              <span className="text-xs text-control-muted">기간 전체 · ASOS</span>
+            </div>
+            <div className="mt-2 flex justify-center">
+              <WindRose bins={windBins} size={190} color="#22d3ee" />
+            </div>
+            <p className="text-xs leading-relaxed text-control-muted">
+              충북 관측 지점들의 풍향(불어오는 방향) 빈도 — 배출이 주로 어느 방향으로
+              이동하는지의 기후적 배경입니다.
+            </p>
+          </section>
+
+          {/* 시군별 현재 배출 */}
+          <section
+            aria-label="시군별 배출"
+            className="rounded-lg border border-control-line bg-control-surface/60 p-5"
+          >
+            <h2 className="kicker text-control-muted">시군별 현재 배출 · {POL}</h2>
+            <ul className="mt-4 flex flex-col gap-2">
+              {cityEmission.map(([city, sum]) => (
+                <li key={city} className="flex items-center gap-2.5 text-sm">
+                  <span className="w-14 shrink-0">{city}</span>
+                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-control-line/60">
+                    <span
+                      className="block h-full rounded-full bg-[var(--alert-warn)]"
+                      style={{
+                        width: `${Math.max(3, (sum / (cityEmission[0]?.[1] || 1)) * 100)}%`,
+                      }}
+                    />
+                  </span>
+                  <span className="font-data shrink-0 text-control-muted">{sum.toFixed(1)}</span>
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
-
-        {/* 경보 발생 풍향 분포 (바람 장미) */}
-        <section
-          aria-label="경보 발생 풍향 분포"
-          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
-        >
-          <div className="flex items-baseline justify-between">
-            <h2 className="kicker text-control-muted">경보 발생 풍향 분포</h2>
-            <span className="text-xs text-control-muted">최근 72시간</span>
-          </div>
-          <div className="mt-2 flex justify-center">
-            <WindRose bins={windBins} size={190} color="#22d3ee" />
-          </div>
-          <p className="text-xs leading-relaxed text-control-muted">
-            경보가 발생한 시각의 풍향(불어오는 방향) 빈도 — 어느 바람일 때
-            취약시설이 영향권에 드는지 보여줍니다.
-          </p>
-        </section>
-
-        {/* 시설 위험도 집계 */}
-        <section
-          aria-label="시설 위험도"
-          className="rounded-lg border border-control-line bg-control-surface/60 p-5"
-        >
-          <h2 className="kicker text-control-muted">시설 위험도</h2>
-          <ul className="mt-4 flex flex-col gap-2">
-            {readings.map((r) => (
-              <li key={r.id} className="flex items-center gap-2.5 text-sm">
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: LEVEL_BG[r.level] }}
-                  aria-hidden
-                />
-                <span>{r.name}</span>
-                <span className="font-data ml-auto text-control-muted">
-                  {r.conc < 0.1 ? "< 0.1" : r.conc.toFixed(1)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {worst && worst.level !== "good" && (
-            <p className="mt-5 rounded-md border border-control-line bg-control-bg/50 px-4 py-3 text-xs leading-relaxed text-control-muted">
-              최고 위험: <strong className="text-control-text">{worst.name}</strong> —{" "}
-              {LEVEL_META[worst.level].advice}
-            </p>
-          )}
-        </section>
+          </section>
         </div>
       </div>
     </AdminShell>

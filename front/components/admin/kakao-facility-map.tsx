@@ -21,8 +21,11 @@ type Facility = {
 };
 
 interface KakaoFacilityMapProps {
-  source: { lng: number; lat: number; name: string };
+  /** 단일 기준 배출원(있으면 거리 링 표시) — 전역 모드에선 생략 */
+  source?: { lng: number; lat: number; name: string };
   facilities: Facility[];
+  /** 시설 칩 부가 수치 단위 (기본 ㎍) */
+  metricUnit?: string;
   className?: string;
 }
 
@@ -73,7 +76,12 @@ function overlayHtml(color: string, name: string, sub?: string) {
   );
 }
 
-export function KakaoFacilityMap({ source, facilities, className }: KakaoFacilityMapProps) {
+export function KakaoFacilityMap({
+  source,
+  facilities,
+  metricUnit = "㎍",
+  className,
+}: KakaoFacilityMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,41 +93,43 @@ export function KakaoFacilityMap({ source, facilities, className }: KakaoFacilit
     }
     let cancelled = false;
     const container = containerRef.current;
+    const center = source ?? facilities[0];
 
     loadKakaoSdk(appkey)
       .then(() => {
-        if (cancelled || !container) return;
+        if (cancelled || !container || !center) return;
         const kakao = window.kakao;
         const map = new kakao.maps.Map(container, {
-          center: new kakao.maps.LatLng(source.lat, source.lng),
+          center: new kakao.maps.LatLng(center.lat, center.lng),
           level: 8,
         });
 
-        // 거리 링 (2km · 4km) — 관제 화면 거리 감각용
-        for (const radius of [2000, 4000]) {
-          new kakao.maps.Circle({
+        const bounds = new kakao.maps.LatLngBounds();
+
+        if (source) {
+          // 거리 링 (2km · 4km) — 단일 배출원 기준일 때만
+          for (const radius of [2000, 4000]) {
+            new kakao.maps.Circle({
+              map,
+              center: new kakao.maps.LatLng(source.lat, source.lng),
+              radius,
+              strokeWeight: 1.2,
+              strokeColor: "#7db4dc",
+              strokeOpacity: 0.55,
+              strokeStyle: "shortdash",
+              fillOpacity: 0,
+            });
+          }
+          new kakao.maps.CustomOverlay({
             map,
-            center: new kakao.maps.LatLng(source.lat, source.lng),
-            radius,
-            strokeWeight: 1.2,
-            strokeColor: "#7db4dc",
-            strokeOpacity: 0.55,
-            strokeStyle: "shortdash",
-            fillOpacity: 0,
+            position: new kakao.maps.LatLng(source.lat, source.lng),
+            content: overlayHtml("#00b8d4", source.name),
+            yAnchor: 1.15,
           });
+          bounds.extend(new kakao.maps.LatLng(source.lat, source.lng));
         }
 
-        // 배출원
-        new kakao.maps.CustomOverlay({
-          map,
-          position: new kakao.maps.LatLng(source.lat, source.lng),
-          content: overlayHtml("#00b8d4", source.name),
-          yAnchor: 1.15,
-        });
-
-        // 취약시설 — 등급색 칩
-        const bounds = new kakao.maps.LatLngBounds();
-        bounds.extend(new kakao.maps.LatLng(source.lat, source.lng));
+        // 시설 — 등급색 칩
         for (const f of facilities) {
           const pos = new kakao.maps.LatLng(f.lat, f.lng);
           bounds.extend(pos);
@@ -129,7 +139,7 @@ export function KakaoFacilityMap({ source, facilities, className }: KakaoFacilit
             content: overlayHtml(
               LEVEL_HEX[f.level],
               f.name,
-              f.conc >= 0.1 ? `${f.conc.toFixed(0)}㎍` : undefined
+              f.conc >= 0.01 ? `${f.conc.toFixed(1)}${metricUnit}` : undefined
             ),
             yAnchor: 1.15,
           });
@@ -147,7 +157,7 @@ export function KakaoFacilityMap({ source, facilities, className }: KakaoFacilit
       cancelled = true;
       if (container) container.innerHTML = "";
     };
-  }, [source, facilities]);
+  }, [source, facilities, metricUnit]);
 
   if (error) {
     return (

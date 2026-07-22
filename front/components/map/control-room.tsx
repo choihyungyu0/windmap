@@ -2,373 +2,137 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LogoDark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
-import { EmdExplain } from "@/components/map/emd-explain";
+import type { MapHover } from "./plume-map";
 import {
-  renderPlumeCanvas,
-  renderPuffCanvas,
-} from "@/components/map/plume-render";
-import { concentrationAt, type Stability } from "@/lib/plume";
-import { arrivalSeconds, puffConcentrationAt } from "@/lib/puff";
-import { lngLatToOffset, offsetToLngLat } from "@/lib/geo";
-import type { BuildingsGeoJson, EmdGeoJson } from "./plume-map";
-import {
-  defaultScenario,
-  gradeOf,
-  LEVEL_META,
-  receptors,
-  source,
-  type AlertLevel,
-} from "@/lib/mock";
+  buildDispersionPoints,
+  facilityMarkers,
+  loadChungbuk,
+  POLLUTANTS,
+  POLLUTANT_ORDER,
+  stationMarkers,
+  windArrows,
+  type ChungbukSnapshot,
+  type PollutantKey,
+} from "@/lib/chungbuk";
 
 // MapLibre는 브라우저 전용 — SSR 제외
-const PlumeMap = dynamic(
-  () => import("./plume-map").then((m) => m.PlumeMap),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="absolute inset-0 flex items-center justify-center text-sm text-control-muted">
-        지도 불러오는 중…
-      </div>
-    ),
-  }
-);
-
-
-/* ── 상수 ── */
-const GRID = 160; // 플룸 래스터 격자 (한 변)
-const HALF_EXTENT = 3000; // 배출원~가장자리 거리(m) → 래스터 한 변 6km
-const STABILITY_LABEL: Record<Stability, string> = {
-  A: "A · 매우 불안정",
-  B: "B · 불안정",
-  C: "C · 약간 불안정",
-  D: "D · 중립",
-  E: "E · 약간 안정",
-  F: "F · 매우 안정",
-};
-const LEVEL_COLOR: Record<AlertLevel, string> = {
-  good: "var(--alert-good)",
-  watch: "var(--alert-watch)",
-  warn: "var(--alert-warn)",
-  severe: "var(--alert-severe)",
-};
-
-/** 풍향(도) → 8방위 한글 */
-function windName(wd: number): string {
-  const names = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
-  return names[Math.round(((wd % 360) + 360) % 360 / 45) % 8] + "풍";
-}
-
-/* ── 풍향 다이얼 (드래그 + 키보드 접근) ── */
-function WindDial({ wd, onChange }: { wd: number; onChange: (v: number) => void }) {
-  const ref = useRef<SVGSVGElement>(null);
-  const dragging = useRef(false);
-
-  const angleFromEvent = useCallback((e: ReactPointerEvent<SVGSVGElement>) => {
-    const el = ref.current;
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    const dx = e.clientX - (r.left + r.width / 2);
-    const dy = e.clientY - (r.top + r.height / 2);
-    // 북=0°, 시계방향
-    return Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360);
-  }, []);
-
-  return (
-    <div>
-      <svg
-        ref={ref}
-        viewBox="0 0 120 120"
-        className="mx-auto block h-36 w-36 cursor-pointer touch-none select-none"
-        onPointerDown={(e) => {
-          dragging.current = true;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          const a = angleFromEvent(e);
-          if (a !== null) onChange(a);
-        }}
-        onPointerMove={(e) => {
-          if (!dragging.current) return;
-          const a = angleFromEvent(e);
-          if (a !== null) onChange(a);
-        }}
-        onPointerUp={() => (dragging.current = false)}
-        aria-hidden
-      >
-        <circle cx="60" cy="60" r="52" fill="var(--control-surface)" stroke="var(--control-line)" />
-        {/* 좌표는 소수 2자리로 고정 — SSR/클라이언트 부동소수점 차이로 인한
-            hydration 불일치 방지 */}
-        {Array.from({ length: 24 }, (_, i) => {
-          const a = (i * 15 * Math.PI) / 180;
-          const long = i % 6 === 0;
-          const r1 = long ? 43 : 47;
-          const f = (v: number) => Number(v.toFixed(2));
-          return (
-            <line
-              key={i}
-              x1={f(60 + r1 * Math.sin(a))}
-              y1={f(60 - r1 * Math.cos(a))}
-              x2={f(60 + 52 * Math.sin(a))}
-              y2={f(60 - 52 * Math.cos(a))}
-              stroke={long ? "var(--control-muted)" : "var(--control-line)"}
-              strokeWidth={long ? 1.5 : 1}
-            />
-          );
-        })}
-        {["N", "E", "S", "W"].map((t, i) => {
-          const a = (i * 90 * Math.PI) / 180;
-          const f = (v: number) => Number(v.toFixed(2));
-          return (
-            <text
-              key={t}
-              x={f(60 + 34 * Math.sin(a))}
-              y={f(60 - 34 * Math.cos(a) + 3.5)}
-              textAnchor="middle"
-              fontSize="9"
-              fill="var(--control-muted)"
-            >
-              {t}
-            </text>
-          );
-        })}
-        {/* 바늘 — 불어오는 방향에서 중심으로 (기상 관례) */}
-        <g transform={`rotate(${wd} 60 60)`}>
-          <line x1="60" y1="14" x2="60" y2="60" stroke="var(--wind)" strokeWidth="2.5" strokeLinecap="round" />
-          <polygon points="60,8 55,18 65,18" fill="var(--wind)" />
-        </g>
-        <circle cx="60" cy="60" r="4" fill="var(--wind)" />
-      </svg>
-      <label className="mt-2 block">
-        <span className="sr-only">풍향 (도)</span>
-        <input
-          type="range"
-          min={0}
-          max={359}
-          step={1}
-          value={wd}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full accent-[var(--wind)]"
-        />
-      </label>
-      <p className="mt-1 text-center text-sm">
-        <span className="font-data text-lg text-control-text">{wd}°</span>{" "}
-        <span className="text-control-muted">{windName(wd)}</span>
-      </p>
+const PlumeMap = dynamic(() => import("./plume-map").then((m) => m.PlumeMap), {
+  ssr: false,
+  loading: () => (
+    <div className="absolute inset-0 flex items-center justify-center text-sm text-control-muted">
+      지도 불러오는 중…
     </div>
-  );
-}
+  ),
+});
 
-/* ── 슬라이더 행 ── */
-function SliderRow({
-  label, unit, min, max, step, value, onChange,
-}: {
-  label: string; unit: string; min: number; max: number; step: number;
-  value: number; onChange: (v: number) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="flex items-baseline justify-between text-sm">
-        <span className="text-control-muted">{label}</span>
-        <span className="font-data text-control-text">
-          {value}
-          <span className="ml-0.5 text-xs text-control-muted">{unit}</span>
-        </span>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1.5 w-full accent-[var(--wind)]"
-      />
-    </label>
-  );
-}
+const SPEEDS = [1, 2, 4] as const;
 
 /* ── 메인 관제 화면 ── */
 export function ControlRoom({ query }: { query?: string }) {
-  const [q, setQ] = useState(defaultScenario.q);
-  const [u, setU] = useState(defaultScenario.u);
-  const [wd, setWd] = useState(defaultScenario.wd);
-  const [stability, setStability] = useState<Stability>(defaultScenario.stability);
-  const [clock, setClock] = useState<string | null>(null);
-  // F-MAP-04 레이어 토글 / F-MAP-03 수용지점 상세
+  const [snap, setSnap] = useState<ChungbukSnapshot | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [pol, setPol] = useState<PollutantKey>("NOx");
+  const [selectedCities, setSelectedCities] = useState<Set<string>>(new Set());
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [layers, setLayers] = useState({
-    plume: true,
+    dispersion: true,
     facilities: true,
-    rings: true,
-    boundaries: true,
+    stations: true,
     wind: true,
   });
-  // 청주 읍면동 경계 (통계청 행정동 기반 공개 GeoJSON — 1회 로드)
-  const [emdGeo, setEmdGeo] = useState<EmdGeoJson | null>(null);
-  useEffect(() => {
-    fetch("/data/cheongju_emd.geojson")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setEmdGeo)
-      .catch(() => setEmdGeo(null));
-  }, []);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hover, setHover] = useState<MapHover | null>(null);
   const [tilesError, setTilesError] = useState(false);
-  // 2D 확산 지도 ↔ 3D 건물 뷰 (흰 압출 건물 — OSM footprint)
-  const [mapView, setMapView] = useState<"2d" | "3d">("2d");
-  // 건물 footprint (1.3MB) — 3D 뷰 최초 진입 시에만 로드
-  const [buildings, setBuildings] = useState<BuildingsGeoJson | null>(null);
-  useEffect(() => {
-    if (mapView !== "3d" || buildings) return;
-    fetch("/data/buildings_3d.geojson")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setBuildings)
-      .catch(() => setBuildings(null));
-  }, [mapView, buildings]);
-  // B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02 · F-MAP-01 시간슬라이더)
-  const [mode, setMode] = useState<"plume" | "puff">("plume");
-  const [tMin, setTMin] = useState(15); // 방출 후 경과(분)
-  const [playing, setPlaying] = useState(false);
+  const [clock, setClock] = useState<string | null>(null);
 
-  // 재생 — 0.5분/100ms 스텝, 60분 도달 시 정지
+  // 실데이터 스냅샷 로드 (public/data/chungbuk.json — 모듈 캐시)
   useEffect(() => {
-    if (!playing) return;
-    const t = setInterval(() => {
-      setTMin((cur) => {
-        if (cur >= 60) {
-          setPlaying(false);
-          return 60;
-        }
-        return Math.min(60, Math.round((cur + 0.5) * 2) / 2);
-      });
-    }, 100);
-    return () => clearInterval(t);
-  }, [playing]);
+    let alive = true;
+    loadChungbuk()
+      .then((s) => {
+        if (!alive) return;
+        // 검색어가 시군명과 매칭되면 그 시군만, 아니면 전체
+        const matched = query
+          ? s.cities.filter((c) => c.includes(query.trim()) || query.includes(c))
+          : [];
+        setSelectedCities(new Set(matched.length ? matched : s.cities));
+        setT(s.n - 1); // 최신 시각부터
+        setSnap(s);
+      })
+      .catch(() => alive && setLoadError(true));
+    return () => {
+      alive = false;
+    };
+  }, [query]);
+
+  // 재생 — 700/speed ms 스텝, 마지막에서 처음으로 순환
+  useEffect(() => {
+    if (!playing || !snap) return;
+    const id = setInterval(
+      () => setT((c) => (c + 1) % snap.n),
+      Math.round(700 / speed)
+    );
+    return () => clearInterval(id);
+  }, [playing, speed, snap]);
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
     tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, []);
 
-  const params = useMemo(
-    () => ({ q, u, wd, stability, h: source.stackHeight }),
-    [q, u, wd, stability]
+  const cityKey = useMemo(
+    () => [...selectedCities].sort().join(","),
+    [selectedCities]
+  );
+  const frameKey = `${pol}|${t}|${cityKey}`;
+
+  const points = useMemo(
+    () => (snap ? buildDispersionPoints(snap, pol, t, selectedCities) : []),
+    [snap, pol, t, cityKey] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const facilities = useMemo(
+    () => (snap ? facilityMarkers(snap, pol, t, selectedCities) : []),
+    [snap, pol, t, cityKey] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const stations = useMemo(
+    () => (snap ? stationMarkers(snap, pol, t, selectedCities) : []),
+    [snap, pol, t, cityKey] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const arrows = useMemo(
+    () => (snap ? windArrows(snap, t, selectedCities) : []),
+    [snap, t, cityKey] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // 농도장 래스터 — 입력 변경 즉시 재계산 (F-MAP-02), 지도에 BitmapLayer로 오버레이
-  const plumeCanvas = useMemo(() => {
-    if (typeof document === "undefined") return null;
-    return mode === "puff"
-      ? renderPuffCanvas(params, GRID, HALF_EXTENT, tMin * 60)
-      : renderPlumeCanvas(params, GRID, HALF_EXTENT);
-  }, [params, mode, tMin]);
+  // 상위 배출 시설 (현재 시각) — 우측 패널
+  const topEmitters = useMemo(
+    () => [...facilities].filter((f) => f.E > 0).sort((a, b) => b.E - a.E).slice(0, 8),
+    [facilities]
+  );
+  const emitMax = topEmitters[0]?.E ?? 1;
 
-  // 수용지점별 도달 농도·도달시각 (라이브) + 경위도
-  // 퍼프 모드: T+tMin 시점 농도, 도달시각은 퍼프 중심 통과(정식 산출물)
-  const readings = useMemo(() => {
-    const bearing = ((params.wd + 180) % 360) * (Math.PI / 180);
-    return receptors
-      .map((r) => {
-        const conc =
-          mode === "puff"
-            ? puffConcentrationAt(r.ex, r.ny, params, tMin * 60)
-            : concentrationAt(r.ex, r.ny, params);
-        const downwind = r.ex * Math.sin(bearing) + r.ny * Math.cos(bearing);
-        const arrival = arrivalSeconds(downwind, params.u);
-        const etaMin = arrival === null ? null : Math.round(arrival / 60);
-        const [lng, lat] = offsetToLngLat(r.ex, r.ny);
-        return { ...r, conc, level: gradeOf(conc), downwind, etaMin, lng, lat };
-      })
-      .sort((a, b) => b.conc - a.conc);
-  }, [params, mode, tMin]);
+  const cfg = POLLUTANTS[pol];
+  const measUnit = pol === "PM10" || pol === "PM25" ? " µg/m³" : "";
 
-  const selected = selectedId
-    ? readings.find((r) => r.id === selectedId) ?? null
-    : null;
-
-  // F-SRCH-01 검색어 → 행정동 매칭 (지오코딩 API 없이 경계 데이터 이름 매칭 —
-  // 시범 지역(청주) 범위와 정합하고 오프라인 데모에서도 동작)
-  const matchedEmd = useMemo(() => {
-    if (!query || !emdGeo) return null;
-    const q = query.replace(/\s/g, "");
-    return (
-      emdGeo.features.find(
-        (f) => q.includes(f.properties.emd) || f.properties.emd.includes(q)
-      ) ?? null
+  function toggleCity(c: string) {
+    setSelectedCities((prev) => {
+      const next = new Set(prev);
+      if (next.has(c)) next.delete(c);
+      else next.add(c);
+      return next;
+    });
+  }
+  function toggleAllCities() {
+    if (!snap) return;
+    setSelectedCities((prev) =>
+      prev.size === snap.cities.length ? new Set() : new Set(snap.cities)
     );
-  }, [query, emdGeo]);
-
-  // 검색된 동네의 해설 입력 데이터 — 전부 물리 엔진·기하 계산의 산출물.
-  // LLM은 이 데이터를 받아 설명만 한다 (전달 계층).
-  const explainInput = useMemo(() => {
-    if (!matchedEmd) return null;
-    const [lng, lat] = matchedEmd.properties.centroid;
-    const [ex, ny] = lngLatToOffset(lng, lat);
-    const distanceKm = Math.round((Math.hypot(ex, ny) / 1000) * 10) / 10;
-    const brg = ((Math.atan2(ex, ny) * 180) / Math.PI + 360) % 360;
-    const names = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
-    const direction = names[Math.round(brg / 45) % 8] + "쪽";
-    const plumeBrg = (params.wd + 180) % 360;
-    let diff = Math.abs(brg - plumeBrg);
-    if (diff > 180) diff = 360 - diff;
-    return {
-      emd: matchedEmd.properties.emd,
-      gu: matchedEmd.properties.gu,
-      distanceKm,
-      direction,
-      downwind: diff < 60,
-      wd: params.wd,
-      ws: params.u,
-    };
-  }, [matchedEmd, params]);
-
-  // 행정동 위험도 — 각 읍면동 중심점의 정상상태 예측 농도로 등급 산정
-  // (시간 슬라이더와 무관한 '이 시나리오의 영향권' 표시 — 채색 안정성)
-  const riskByCode = useMemo(() => {
-    const out: Record<string, ReturnType<typeof gradeOf>> = {};
-    if (!emdGeo) return out;
-    for (const f of emdGeo.features) {
-      const [lng, lat] = f.properties.centroid;
-      const [cex, cny] = lngLatToOffset(lng, lat);
-      // 관심 반경 밖(>9km)은 계산 생략 — 항상 good
-      if (Math.abs(cex) > 9000 || Math.abs(cny) > 9000) {
-        out[f.properties.adm_cd2] = "good";
-        continue;
-      }
-      // 중심점 + 경계 정점 최대 농도 — 플룸이 동을 가로지르는 경우 포착
-      let maxConc = concentrationAt(cex, cny, params);
-      const geom = f.geometry as unknown as {
-        type: string;
-        coordinates: number[][][] | number[][][][];
-      };
-      const polys =
-        geom.type === "MultiPolygon"
-          ? (geom.coordinates as number[][][][])
-          : [geom.coordinates as number[][][]];
-      for (const poly of polys) {
-        const ring = poly[0];
-        for (let i = 0; i < ring.length; i += 3) {
-          const [ex, ny] = lngLatToOffset(ring[i][0], ring[i][1]);
-          if (Math.abs(ex) > 9000 || Math.abs(ny) > 9000) continue;
-          const c = concentrationAt(ex, ny, params);
-          if (c > maxConc) maxConc = c;
-        }
-      }
-      out[f.properties.adm_cd2] = gradeOf(maxConc);
-    }
-    return out;
-  }, [emdGeo, params]);
-
-  const onSelect = useCallback((id: string | null) => setSelectedId(id), []);
-  const onTileError = useCallback(() => setTilesError(true), []);
+  }
 
   return (
     <div className="min-h-screen bg-control-bg text-control-text">
@@ -382,171 +146,162 @@ export function ControlRoom({ query }: { query?: string }) {
         </Link>
         <span className="hidden h-4 w-px bg-control-line sm:block" />
         <h1 className="hidden text-sm font-medium text-control-muted sm:block">
-          확산 관제 <span className="font-data">MAP</span>
+          충북 확산 관제 <span className="font-data">MAP</span>
         </h1>
         <div className="ml-auto flex items-center gap-3">
-          {/* F-SRCH-01/02 검색 결과 — 매칭된 행정동의 위험 요약 */}
-          {query &&
-            (matchedEmd ? (
-              <span
-                className="hidden max-w-[22rem] items-center gap-2 truncate rounded-full border border-wind/40 bg-wind/10 px-3 py-1 text-xs md:flex"
-                title={`${matchedEmd.properties.gu} ${matchedEmd.properties.emd} — 현재 시나리오 기준 위험도`}
-              >
-                <span className="text-wind">{matchedEmd.properties.emd}</span>
-                <span
-                  className="font-semibold"
-                  style={{
-                    color:
-                      LEVEL_COLOR[
-                        riskByCode[matchedEmd.properties.adm_cd2] ?? "good"
-                      ],
-                  }}
-                >
-                  {LEVEL_META[riskByCode[matchedEmd.properties.adm_cd2] ?? "good"].symbol}{" "}
-                  {LEVEL_META[riskByCode[matchedEmd.properties.adm_cd2] ?? "good"].label}
-                </span>
-              </span>
-            ) : (
-              <span
-                className="hidden max-w-[18rem] truncate rounded-full border border-control-line px-3 py-1 text-xs text-control-muted md:block"
-                title={`"${query}" 를 찾지 못했습니다`}
-              >
-                “{query}” 미매칭 — 청주 읍면동 이름으로 검색
-              </span>
-            ))}
+          {query && (
+            <span className="hidden max-w-[16rem] truncate rounded-full border border-wind/40 bg-wind/10 px-3 py-1 text-xs text-wind md:block">
+              검색: {query}
+            </span>
+          )}
           <MapGuide />
           <span className="hidden rounded-full border border-control-line px-3 py-1 text-xs text-control-muted sm:block">
-            시범 모드 · 시뮬레이션 데이터
+            충북 실배출 · 근사 확산
           </span>
-          <span className="font-data hidden text-sm text-control-muted sm:block" suppressHydrationWarning>
+          <span
+            className="font-data hidden text-sm text-control-muted sm:block"
+            suppressHydrationWarning
+          >
             {clock ?? "--:--:--"}
           </span>
         </div>
       </header>
 
       <div className="grid gap-4 p-4 lg:grid-cols-[280px_minmax(0,1fr)_320px] lg:gap-5 lg:p-6">
-        {/* ── 좌: 조작 패널 (F-MAP-02) ── */}
+        {/* ── 좌: 조작 패널 ── */}
         <section
           aria-label="확산 조건 조작"
           className="flex flex-col gap-6 rounded-lg border border-control-line bg-control-surface/60 p-5"
         >
+          {/* 물질 선택 */}
           <div>
-            <h2 className="kicker text-control-muted">기상 조건</h2>
-            <div className="mt-4">
-              <WindDial wd={wd} onChange={setWd} />
-            </div>
-          </div>
-
-          <SliderRow label="풍속" unit="m/s" min={0.5} max={12} step={0.5} value={u} onChange={setU} />
-          <SliderRow label="배출률" unit="g/s" min={1} max={100} step={1} value={q} onChange={setQ} />
-
-          <label className="block">
-            <span className="text-sm text-control-muted">대기안정도 (P-G)</span>
-            <select
-              value={stability}
-              onChange={(e) => setStability(e.target.value as Stability)}
-              className="mt-1.5 w-full rounded-md border border-control-line bg-control-bg px-3 py-2 text-sm text-control-text"
-            >
-              {(Object.keys(STABILITY_LABEL) as Stability[]).map((s) => (
-                <option key={s} value={s}>
-                  {STABILITY_LABEL[s]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {/* 확산 모드 — B1a 정상상태 / B1b 시간 전파 (F-DSP-01/02) */}
-          <div role="group" aria-label="확산 모드" className="border-t border-control-line pt-4">
-            <h2 className="kicker text-control-muted">확산 모드</h2>
-            <div className="mt-2.5 grid grid-cols-2 gap-1 rounded-md border border-control-line p-1">
-              {(
-                [
-                  ["plume", "정상상태", "B1a"],
-                  ["puff", "시간 전파", "B1b"],
-                ] as const
-              ).map(([key, label, tag]) => (
+            <h2 className="kicker text-control-muted">대상 물질</h2>
+            <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-md border border-control-line p-1">
+              {POLLUTANT_ORDER.map((key) => (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setMode(key)}
-                  aria-pressed={mode === key}
+                  onClick={() => setPol(key)}
+                  aria-pressed={pol === key}
                   className={
-                    "rounded px-2 py-1.5 text-xs font-medium transition-colors " +
-                    (mode === key
+                    "rounded px-1.5 py-1.5 text-xs font-medium transition-colors " +
+                    (pol === key
                       ? "bg-wind/20 text-control-text"
                       : "text-control-muted hover:text-control-text")
                   }
                 >
-                  {label} <span className="font-data opacity-60">{tag}</span>
+                  {POLLUTANTS[key].label}
                 </button>
               ))}
             </div>
-
-            {mode === "puff" && (
-              <div className="mt-3">
-                <span className="flex items-baseline justify-between text-sm">
-                  <span className="text-control-muted">방출 후 경과</span>
-                  <span className="font-data text-control-text">
-                    T+{tMin}
-                    <span className="ml-0.5 text-xs text-control-muted">분</span>
-                  </span>
-                </span>
-                <div className="mt-1.5 flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!playing && tMin >= 60) setTMin(0);
-                      setPlaying((v) => !v);
-                    }}
-                    aria-label={playing ? "일시정지" : "재생"}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-wind/50 text-wind transition-colors hover:bg-wind/10"
-                  >
-                    {playing ? "❚❚" : "▶"}
-                  </button>
-                  <label className="flex-1">
-                    <span className="sr-only">방출 후 경과 시간 (분)</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={60}
-                      step={0.5}
-                      value={tMin}
-                      onChange={(e) => {
-                        setPlaying(false);
-                        setTMin(Number(e.target.value));
-                      }}
-                      className="w-full accent-[var(--wind)]"
-                    />
-                  </label>
-                </div>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-control-muted">
-                  퍼프가 바람을 타고 퍼져나가는 과정 — 시설 도달 시각이 모델의
-                  정식 산출물이 됩니다.
-                </p>
-              </div>
+            {cfg.note && (
+              <p className="mt-2.5 rounded-md border border-alert-watch/40 bg-alert-watch/5 px-2.5 py-2 text-[11px] leading-relaxed text-alert-watch">
+                {cfg.note}
+              </p>
             )}
           </div>
 
-          {/* F-MAP-04 레이어 토글 */}
-          <div role="group" aria-label="레이어 표시" className="border-t border-control-line pt-4">
+          {/* 시간 */}
+          <div className="border-t border-control-line pt-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="kicker text-control-muted">시각</h2>
+              <span className="font-data text-sm text-control-text">
+                {snap ? snap.times[t] : "—"}
+              </span>
+            </div>
+            <div className="mt-2.5 flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setPlaying((v) => !v)}
+                disabled={!snap}
+                aria-label={playing ? "일시정지" : "재생"}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-wind/50 text-wind transition-colors hover:bg-wind/10 disabled:opacity-40"
+              >
+                {playing ? "❚❚" : "▶"}
+              </button>
+              <label className="flex-1">
+                <span className="sr-only">시각 슬라이더</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={snap ? snap.n - 1 : 0}
+                  step={1}
+                  value={t}
+                  disabled={!snap}
+                  onChange={(e) => {
+                    setPlaying(false);
+                    setT(Number(e.target.value));
+                  }}
+                  className="w-full accent-[var(--wind)]"
+                />
+              </label>
+              <select
+                value={speed}
+                onChange={(e) =>
+                  setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])
+                }
+                aria-label="재생 배속"
+                className="rounded-md border border-control-line bg-control-bg px-1.5 py-1 text-xs text-control-text"
+              >
+                {SPEEDS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}×
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 시군 필터 */}
+          <div className="border-t border-control-line pt-4">
+            <div className="flex items-center justify-between">
+              <h2 className="kicker text-control-muted">시군</h2>
+              <button
+                type="button"
+                onClick={toggleAllCities}
+                className="text-[11px] text-wind hover:underline"
+              >
+                {snap && selectedCities.size === snap.cities.length
+                  ? "전체 해제"
+                  : "전체 선택"}
+              </button>
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+              {(snap?.cities ?? []).map((c) => (
+                <label key={c} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedCities.has(c)}
+                    onChange={() => toggleCity(c)}
+                    className="size-4 accent-[var(--wind)]"
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* 레이어 토글 */}
+          <div
+            role="group"
+            aria-label="레이어 표시"
+            className="border-t border-control-line pt-4"
+          >
             <h2 className="kicker text-control-muted">레이어</h2>
             <div className="mt-2.5 flex flex-col gap-2">
               {(
                 [
-                  ["plume", "플룸 (농도장)"],
-                  ["wind", "바람 흐름"],
-                  ["facilities", "취약시설"],
-                  ["boundaries", "행정동 위험도"],
-                  ["rings", "거리 링"],
+                  ["dispersion", "확산 (근사)"],
+                  ["facilities", "배출 굴뚝"],
+                  ["stations", "대기측정소"],
+                  ["wind", "시군 바람"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2.5 text-sm">
                   <input
                     type="checkbox"
                     checked={layers[key]}
-                    onChange={() =>
-                      setLayers((l) => ({ ...l, [key]: !l[key] }))
-                    }
+                    onChange={() => setLayers((l) => ({ ...l, [key]: !l[key] }))}
                     className="size-4 accent-[var(--wind)]"
                   />
                   {label}
@@ -555,247 +310,168 @@ export function ControlRoom({ query }: { query?: string }) {
             </div>
           </div>
 
+          {/* 데이터셋 요약 */}
           <dl className="space-y-1.5 border-t border-control-line pt-4 text-xs text-control-muted">
             <div className="flex justify-between">
-              <dt>배출원</dt>
-              <dd className="text-control-text">{source.name}</dd>
+              <dt>기간</dt>
+              <dd className="font-data text-control-text">
+                {snap ? `${snap.times[0]} ~ ${snap.times[snap.n - 1]}` : "—"}
+              </dd>
             </div>
             <div className="flex justify-between">
-              <dt>유효 굴뚝고</dt>
-              <dd className="font-data text-control-text">{source.stackHeight} m</dd>
+              <dt>배출 굴뚝 · 측정소</dt>
+              <dd className="font-data text-control-text">
+                {snap ? `${snap.facilities.length} · ${snap.stations.length}` : "—"}
+              </dd>
             </div>
             <div className="flex justify-between">
-              <dt>대상 물질</dt>
-              <dd className="font-data text-control-text">{source.item}</dd>
+              <dt>시군</dt>
+              <dd className="font-data text-control-text">
+                {snap ? `${snap.cities.length}개` : "—"}
+              </dd>
             </div>
           </dl>
         </section>
 
-        {/* ── 중앙: 확산 지도 (F-MAP-01 · 실지도) ── */}
+        {/* ── 중앙: 확산 지도 ── */}
         <section aria-label="확산 지도" className="relative">
           <div className="relative aspect-square w-full overflow-hidden rounded-lg border border-control-line bg-[#081420]">
-            <PlumeMap
-              plumeCanvas={plumeCanvas}
-              halfExtent={HALF_EXTENT}
-              readings={readings}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              layers={layers}
-              boundaries={emdGeo}
-              riskByCode={riskByCode}
-              focus={
-                matchedEmd
-                  ? {
-                      lng: matchedEmd.properties.centroid[0],
-                      lat: matchedEmd.properties.centroid[1],
-                      key: matchedEmd.properties.adm_cd2,
-                    }
-                  : null
-              }
-              highlightCode={matchedEmd?.properties.adm_cd2 ?? null}
-              wind={{ wd: params.wd, ws: params.u }}
-              showWind={layers.wind}
-              onTileError={onTileError}
-              view3d={mapView === "3d"}
-              buildings={buildings}
-            />
+            {snap && !loadError ? (
+              <PlumeMap
+                points={points}
+                facilities={facilities}
+                stations={stations}
+                arrows={arrows}
+                domain={snap.domain}
+                layers={layers}
+                frameKey={frameKey}
+                onHover={setHover}
+                onTileError={() => setTilesError(true)}
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-control-muted">
+                {loadError
+                  ? "실데이터를 불러오지 못했습니다 — chungbuk.json 확인"
+                  : "실데이터 불러오는 중…"}
+              </div>
+            )}
 
-            {/* 2D 확산 ↔ 3D 건물 토글 */}
-            <div
-              role="group"
-              aria-label="지도 시점"
-              className="absolute left-3 top-3 z-10 flex gap-1 rounded-md border border-control-line bg-control-bg/85 p-1 backdrop-blur"
-            >
-              {(
-                [
-                  ["2d", "2D 확산"],
-                  ["3d", "3D 건물"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setMapView(key)}
-                  aria-pressed={mapView === key}
-                  className={
-                    "rounded px-2.5 py-1 text-xs font-medium transition-colors " +
-                    (mapView === key
-                      ? "bg-wind/20 text-control-text"
-                      : "text-control-muted hover:text-control-text")
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* 배경지도 로드 실패 안내 (오프라인 등) — 플룸 계산은 계속 동작 */}
+            {/* 배경지도 로드 실패 안내 */}
             {tilesError && (
               <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-alert-watch/50 bg-control-bg/90 px-4 py-1.5 text-xs text-alert-watch backdrop-blur">
-                배경지도 타일을 불러오지 못했습니다 — 네트워크 확인 (확산 계산은 정상)
+                배경지도 타일을 불러오지 못했습니다 — 네트워크 확인 (확산 표시는 정상)
               </div>
             )}
 
-            {/* 수용지점 상세 패널 (F-MAP-03) */}
-            {selected && (
+            {/* 호버 상세 툴팁 */}
+            {hover && (
               <div
-                role="dialog"
-                aria-label={`${selected.name} 상세`}
-                className="absolute right-3 top-3 z-10 w-64 rounded-lg border border-control-line bg-control-bg/90 p-4 backdrop-blur"
+                className="pointer-events-none absolute z-10 max-w-[15rem] rounded-md border border-control-line bg-control-bg/95 px-3 py-2 text-xs backdrop-blur"
+                style={{
+                  left: Math.min(hover.x + 12, 320),
+                  top: Math.max(hover.y - 8, 8),
+                }}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-bold">{selected.name}</h3>
-                    <p className="text-xs text-control-muted">{selected.type}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(null)}
-                    aria-label="상세 닫기"
-                    className="text-control-muted transition-colors hover:text-control-text"
-                  >
-                    ✕
-                  </button>
+                <div className="font-medium text-control-text">{hover.name}</div>
+                <div className="mt-0.5 text-control-muted">
+                  {hover.city} ·{" "}
+                  {hover.kind === "facility" ? (
+                    <>
+                      {cfg.label} 배출{" "}
+                      <span className="font-data text-control-text">
+                        {hover.value != null ? hover.value.toFixed(2) : "0"} g/s
+                      </span>
+                    </>
+                  ) : hover.value != null ? (
+                    <>
+                      {cfg.meas ? `${cfg.label} 측정 ` : "측정 "}
+                      <span className="font-data text-control-text">
+                        {hover.value}
+                        {measUnit}
+                      </span>
+                    </>
+                  ) : (
+                    "측정값 없음"
+                  )}
                 </div>
-                <dl className="mt-3 space-y-1.5 text-xs">
-                  <div className="flex justify-between">
-                    <dt className="text-control-muted">
-                      {mode === "puff" ? `T+${tMin}분 농도` : "예측 도달 농도"}
-                    </dt>
-                    <dd className="font-data">
-                      {selected.conc < 0.1 ? "< 0.1" : selected.conc.toFixed(1)} μg/m³
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-control-muted">등급</dt>
-                    <dd
-                      className="font-semibold"
-                      style={{ color: LEVEL_COLOR[selected.level] }}
-                    >
-                      {LEVEL_META[selected.level].symbol}{" "}
-                      {LEVEL_META[selected.level].label}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-control-muted">풍하 거리</dt>
-                    <dd className="font-data">
-                      {selected.downwind > 0
-                        ? `${(selected.downwind / 1000).toFixed(1)} km`
-                        : "영향권 밖"}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-control-muted">도달 예상</dt>
-                    <dd className="font-data">
-                      {selected.etaMin === null ? "—" : `약 ${selected.etaMin}분 후`}
-                    </dd>
-                  </div>
-                </dl>
-                {selected.level !== "good" && (
-                  <p className="mt-3 border-t border-control-line pt-2.5 text-xs leading-relaxed text-control-muted">
-                    {LEVEL_META[selected.level].advice}
-                  </p>
-                )}
-                <p className="mt-2 text-[10px] text-control-muted">
-                  {mode === "puff"
-                    ? "좌측 슬라이더로 시점을 움직여 도달 과정을 확인하세요."
-                    : "‘시간 전파’ 모드로 바꾸면 도달 과정을 시간대별로 볼 수 있습니다."}
-                </p>
               </div>
             )}
 
-            {/* 범례 (농도장) */}
+            {/* 범례 — 상대 영향 강도(근사), 절대 농도 아님 */}
             <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-md border border-control-line bg-control-bg/85 px-3 py-2 backdrop-blur">
               <div
                 className="h-1.5 w-44 rounded-full"
                 style={{
                   background:
-                    "linear-gradient(90deg, rgba(0,184,212,.25), rgba(0,184,212,.9) 25%, #d97706 55%, #ea580c 78%, #dc2626)",
+                    "linear-gradient(90deg, rgba(0,184,212,.35), rgba(0,184,212,.9) 20%, #d97706 55%, #ea580c 78%, #dc2626)",
                 }}
               />
               <div className="font-data mt-1 flex w-44 justify-between text-[9px] text-control-muted">
-                <span>0</span><span>40</span><span>90</span><span>180</span><span>μg/m³</span>
+                <span>낮음</span>
+                <span>상대 영향 강도 (근사)</span>
+                <span>높음</span>
               </div>
             </div>
           </div>
 
           <p className="mt-2 text-xs text-control-muted">
-            {mode === "puff"
-              ? `가우시안 퍼프(B1b) 시간 전파 — 방출 후 T+${tMin}분 시점의 농도장 · 자체 구현.`
-              : "가우시안 플룸(B1a) 정상상태 실시간 계산."}{" "}
-            배경지도 © CARTO / OpenStreetMap · 행정동 경계: 통계청 행정동
-            기반 공개 데이터.
-            {mapView === "3d" &&
-              " 3D 건물: OSM footprint 기반 근사 높이 — 시설 건물은 위험 등급 색."}{" "}
-            수치는 시뮬레이션이며 실측이 아닙니다. 배출원·시설 위치는 데모용
-            예시 좌표로, 실존 특정 시설을 지칭하지 않습니다.
+            충북 전역 {snap?.facilities.length ?? "—"}개 굴뚝의 실시간 배출량(CleanSYS
+            TMS)과 시군별 실측 바람(ASOS)으로 그린 <strong>근사 확산 풋프린트</strong>{" "}
+            — 풍향·풍속·배출량 기반이며 검증된 물리 모델이 아닙니다. 색은 절대
+            농도(μg/m³)가 아닌 상대 영향 강도입니다. 측정소 색은 에어코리아 실측값.
+            배경지도 © CARTO / OpenStreetMap. 배출 영향 범위 추정이며 특정 시설을
+            오염 피해의 인과로 지목하지 않습니다.
           </p>
         </section>
 
-        {/* ── 우: 수용지점 도달 현황 (F-ALT-01 미리보기) ── */}
+        {/* ── 우: 상위 배출 시설 (현재 시각) ── */}
         <section
-          aria-label="수용지점 도달 현황"
+          aria-label="상위 배출 시설"
           className="flex flex-col rounded-lg border border-control-line bg-control-surface/60 p-5"
         >
-          {/* 동네 검색 해설 (LLM 전달 계층 · 폴백 템플릿) */}
-          {explainInput && matchedEmd && (
-            <EmdExplain
-              {...explainInput}
-              level={riskByCode[matchedEmd.properties.adm_cd2] ?? "good"}
-            />
-          )}
-
-          <h2 className="kicker text-control-muted">취약시설 도달 현황</h2>
+          <h2 className="kicker text-control-muted">
+            상위 배출 시설 · {cfg.label}
+          </h2>
+          <p className="mt-1 text-xs text-control-muted">
+            {snap ? snap.times[t] : "—"} 기준 · 선택 시군
+          </p>
           <ul className="mt-4 flex flex-col gap-2.5">
-            {readings.map((r) => {
-              const meta = LEVEL_META[r.level];
-              return (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedId((cur) => (cur === r.id ? null : r.id))
-                    }
-                    aria-pressed={selectedId === r.id}
-                    className={
-                      "w-full rounded-md border bg-control-bg/50 px-3.5 py-3 text-left transition-colors " +
-                      (selectedId === r.id
-                        ? "border-wind/60"
-                        : "border-control-line hover:border-wind/30")
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{r.name}</span>
-                      <span
-                        className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold text-white"
-                        style={{ background: LEVEL_COLOR[r.level] }}
-                      >
-                        <span aria-hidden>{meta.symbol}</span>
-                        {meta.label}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex items-baseline justify-between">
-                      <span className="text-xs text-control-muted">{r.type}</span>
-                      <span className="font-data text-sm">
-                        {r.conc < 0.1 ? "< 0.1" : r.conc.toFixed(1)}
-                        <span className="ml-1 text-[10px] text-control-muted">μg/m³</span>
-                      </span>
-                    </div>
-                    {r.level !== "good" && (
-                      <p className="mt-1.5 text-xs leading-relaxed text-control-muted">
-                        {meta.advice}
-                      </p>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
+            {topEmitters.length === 0 && (
+              <li className="text-sm text-control-muted">
+                이 시각·물질·시군에서 배출 신호가 없습니다.
+              </li>
+            )}
+            {topEmitters.map((f) => (
+              <li
+                key={f.name}
+                className="rounded-md border border-control-line bg-control-bg/50 px-3.5 py-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-medium" title={f.name}>
+                    {f.name}
+                  </span>
+                  <span className="font-data shrink-0 text-sm text-control-text">
+                    {f.E.toFixed(2)}
+                    <span className="ml-1 text-[10px] text-control-muted">g/s</span>
+                  </span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-xs text-control-muted">{f.city}</span>
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-control-line/60">
+                    <span
+                      className="block h-full rounded-full bg-[var(--alert-warn)]"
+                      style={{ width: `${Math.max(6, (f.E / emitMax) * 100)}%` }}
+                    />
+                  </span>
+                </div>
+              </li>
+            ))}
           </ul>
           <Link
             href="/alerts"
             className="mt-auto pt-4 text-sm text-wind underline-offset-4 hover:underline"
           >
-            경보 화면에서 전체 보기 →
+            취약시설 경보 화면 →
           </Link>
         </section>
       </div>

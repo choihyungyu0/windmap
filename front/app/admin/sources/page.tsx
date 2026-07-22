@@ -13,7 +13,7 @@ export default function AdminSourcesPage() {
     <AdminShell>
       <h1 className="text-2xl font-bold">배출원 관리</h1>
       <p className="mt-2 text-sm text-control-muted">
-        시범 배출원의 좌표·굴뚝 제원을 관리하고, 확산 계산 대상 여부를 지정합니다.
+        충북 전역 배출 굴뚝의 실좌표·소속 시군·배출 물질을 조회합니다 (CleanSYS TMS 등재 사업장).
       </p>
       <div className="mt-6">
         <SourcesTable />

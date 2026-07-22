@@ -20,6 +20,7 @@ F-VAL-01 애블레이션 배치 — 합성 쌍둥이 실험(synthetic twin).
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sqlite3
@@ -96,6 +97,65 @@ def load_series() -> list[dict]:
     return out
 
 
+# ── 실입력 로더 (--real) — 실배출(TMS)·실바람(ASOS)을 스냅샷에서 읽어 rows 구성 ──
+# 시범 배출원: 청주 소각시설(가동/정지 뚜렷 → 방법 A 자연실험 성립, 시범배출원 서사와 정합)
+PILOT_FACILITY = "청주시 생활폐기물처리시설"
+
+
+def _parse_ts_real(label: str, year: int = 2026) -> tuple[str, float, int]:
+    """스냅샷 시각 라벨 '7/10 20시' → (iso, epoch, hour)."""
+    date_part, hour_part = label.split(" ")
+    mo, day = (int(x) for x in date_part.split("/"))
+    hour = int(hour_part.replace("시", ""))
+    dt = datetime(year, mo, day, hour)
+    return dt.isoformat(), dt.timestamp(), hour
+
+
+def _derive_stab(hour: int, ws: float) -> str:
+    """실측 안정도 미제공 → 주야·풍속 기반 Pasquill 근사(라벨로 명시)."""
+    if hour <= 5 or hour >= 21:  # 야간
+        return "E" if ws < 2.5 else "D"
+    if 10 <= hour <= 16:  # 주간
+        return "C" if ws < 3 else "D"
+    return "D"
+
+
+def load_series_real(pilot: str = PILOT_FACILITY) -> tuple[list[dict], str]:
+    """front/public/data/chungbuk.json 에서 시범 배출원 실 NOx + 소속 시군 실바람 로드."""
+    snap = json.loads((PUBLIC_DATA_DIR / "chungbuk.json").read_text(encoding="utf-8"))
+    names = [f["name"] for f in snap["facilities"]]
+    if pilot in names:
+        fi = names.index(pilot)
+    else:  # 폴백: NOx 가동시간 최다 시설 자동 선택
+        fi = max(range(len(names)), key=lambda i: sum(1 for v in snap["emis"]["NOx"][i] if v))
+        pilot = names[fi]
+    city = snap["facilities"][fi]["city"]
+    wind = snap["wind"].get(city, {})
+    wd_arr, ws_arr = wind.get("wd", []), wind.get("ws", [])
+    nox = snap["emis"]["NOx"][fi]
+    out: list[dict] = []
+    for t, label in enumerate(snap["times"]):
+        wd = wd_arr[t] if t < len(wd_arr) else None
+        ws = ws_arr[t] if t < len(ws_arr) else None
+        if wd is None or ws is None:
+            continue  # 바람 결측 시각 제외
+        iso, epoch, hour = _parse_ts_real(label)
+        q = float(nox[t] or 0.0)
+        out.append(
+            {
+                "ts": iso,
+                "epoch": epoch,
+                "hour": hour,
+                "wd": float(wd),
+                "ws": float(ws),
+                "stab": _derive_stab(hour, float(ws)),
+                "q": q,
+                "op": 1 if q > 0 else 0,
+            }
+        )
+    return out, pilot
+
+
 def synthesize(rows: list[dict]) -> None:
     """각 시각·측정소의 배경/진짜기여/관측을 rows 에 채운다."""
     for i, r in enumerate(rows):
@@ -114,7 +174,9 @@ def synthesize(rows: list[dict]) -> None:
             contrib = TRUE["gain"] * puff.concentration_at(
                 st["ex"], st["ny"], puffs_true, r["q"], TRUE["stack_h"]
             )
-            noise = TRUE["noise"] * _det_noise(r["epoch"] + hash(st["id"]) % 97)
+            # 측정소별 노이즈 위상 분리 — 결정적 시드(재현성 NFR-8, hash() 금지)
+            st_seed = sum(ord(c) for c in st["id"])
+            noise = TRUE["noise"] * _det_noise(r["epoch"] + st_seed)
             r[f"true_{st['id']}"] = contrib
             r[f"obs_{st['id']}"] = max(0.0, bg + contrib + noise)
 
@@ -179,12 +241,8 @@ def features(r: dict) -> list[float]:
     ]
 
 
-def run() -> dict:
-    rows = load_series()
-    if len(rows) < 100:
-        raise SystemExit(
-            f"데이터 부족({len(rows)}시간) — 먼저 python -m backend.pipeline --mock --backfill 240"
-        )
+def _compute(rows: list[dict], real: bool, pilot: str | None) -> dict:
+    """입력 시계열 rows → 합성 관측·Δ분리·물리·보정·지표 산출 (파일 쓰기 없음)."""
     synthesize(rows)
     delta_diag = separate_delta(rows)
     physics_predictions(rows)
@@ -240,7 +298,8 @@ def run() -> dict:
     # CI를 정직하게 보고하고 유의성 확보는 실데이터 표본 확대(P2b) 과제로 명시.
     import random
 
-    block = 24
+    # 검증 구간이 짧으면(실입력 ~6일치) 블록을 줄여 부트스트랩 표본 확보
+    block = 24 if len(test) >= 96 else 12
     blocks = [list(range(i, min(i + block, len(test)))) for i in range(0, len(test), block)]
     rng = random.Random(42)
     imps = []
@@ -251,14 +310,31 @@ def run() -> dict:
         imps.append((a - b) / a * 100 if a > 0 else 0.0)
     imps.sort()
 
+    kind = "real-input-twin" if real else "synthetic-twin"
+    if real:
+        caveat = (
+            f"실입력 합성-쌍둥이 — 실배출(CleanSYS TMS, {pilot} NOx)·실바람(ASOS)을 입력으로 "
+            f"구동. 배출원 순수 기여의 '정답'은 측정소 총농도에서 분리 불가라 편차 물리(굴뚝고 "
+            f"55m·풍향+4°·스케일1.3)+노이즈로 합성. 실측 Δ검증은 전용 시범배출원 가동/정지 "
+            f"자연실험(P2b) 과제. 실입력 표본 {len(rows)}h"
+        )
+        metric = "Δ농도(풍상 차감) RMSE (μg/m³) · 실입력(TMS·ASOS)"
+    else:
+        caveat = (
+            "합성 쌍둥이 실험 — mock 수집 데이터 위에 편차 물리(굴뚝고 55m·풍향 +4°·스케일 1.3)로 "
+            "만든 합성 관측 기준. 실측(P2b) 검증으로 교체 예정"
+        )
+        metric = "Δ농도(풍상 차감) RMSE (μg/m³)"
+
     report = {
-        "kind": "synthetic-twin",
-        "caveat": "합성 쌍둥이 실험 — mock 수집 데이터 위에 편차 물리(굴뚝고 55m·풍향 +4°·스케일 1.3)로 만든 합성 관측 기준. 실측(P2b) 검증으로 교체 예정",
+        "kind": kind,
+        "caveat": caveat,
         "generatedFrom": rows[-1]["ts"],
+        "pilot": pilot,
         "hours": len(rows),
         "trainHours": len(train),
         "testHours": len(test),
-        "metric": "Δ농도(풍상 차감) RMSE (μg/m³)",
+        "metric": metric,
         "ladder": ladder,
         "improvementPct": improvement,
         "bootstrap": {
@@ -279,21 +355,93 @@ def run() -> dict:
         },
     }
 
-    # 플라이휠 ③: 시민 체감 제보를 정답 라벨로 소비 (있으면)
+    return report
+
+
+def _attach_citizen(report: dict) -> None:
+    """플라이휠 ③: 시민 체감 제보를 정답 라벨로 소비 (있으면)."""
     feedback = citizen.summarize()
     if feedback:
         citizen.mark_consumed()
         report["citizenFeedback"] = feedback
 
+
+def _write(report: dict) -> None:
     PUBLIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (PUBLIC_DATA_DIR / "validation-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def run(real: bool = False) -> dict:
+    """단일 실행 — real=False: 통제 합성-쌍둥이(mock 구동) · real=True: 실입력(TMS·ASOS)."""
+    if real:
+        rows, pilot = load_series_real()
+    else:
+        rows, pilot = load_series(), None
+    if len(rows) < 100:
+        hint = (
+            "실입력 시계열이 짧습니다 — build_snapshot.py 재생성 후 재시도"
+            if real
+            else "먼저 python -m backend.pipeline --mock --backfill 240"
+        )
+        raise SystemExit(f"데이터 부족({len(rows)}시간) — {hint}")
+    report = _compute(rows, real, pilot)
+    _attach_citizen(report)
+    _write(report)
+    return report
+
+
+def run_combined() -> dict:
+    """통제(합성-쌍둥이) + 실입력(TMS·ASOS)을 한 리포트로 — /report 나란히 게시용."""
+    ctrl_rows = load_series()
+    if len(ctrl_rows) < 100:
+        raise SystemExit(
+            f"통제 데이터 부족({len(ctrl_rows)}h) — python -m backend.pipeline --mock --backfill 240"
+        )
+    report = _compute(ctrl_rows, real=False, pilot=None)
+    try:
+        real_rows, pilot = load_series_real()
+        if len(real_rows) >= 100:
+            r = _compute(real_rows, real=True, pilot=pilot)
+            report["realInput"] = {
+                k: r[k]
+                for k in (
+                    "caveat", "pilot", "hours", "trainHours", "testHours",
+                    "metric", "ladder", "improvementPct", "bootstrap", "series",
+                )
+            }
+        else:
+            report["realInputError"] = f"실입력 {len(real_rows)}h < 100"
+    except Exception as e:  # 실입력 실패해도 통제 리포트는 유지
+        report["realInputError"] = str(e)
+    _attach_citizen(report)
+    _write(report)
     return report
 
 
 if __name__ == "__main__":
-    rep = run()
+    ap = argparse.ArgumentParser(description="F-VAL-01 애블레이션 배치")
+    ap.add_argument(
+        "--real",
+        action="store_true",
+        help="실배출(TMS)·실바람(ASOS) 입력으로만 구동 (front/public/data/chungbuk.json)",
+    )
+    ap.add_argument(
+        "--combined",
+        action="store_true",
+        help="통제(합성-쌍둥이) + 실입력을 한 리포트로 나란히 (권장 — /report 게시용)",
+    )
+    args = ap.parse_args()
+    rep = run_combined() if args.combined else run(real=args.real)
+    print(f"kind={rep['kind']} · pilot={rep.get('pilot')} · metric={rep['metric']}")
     print(json.dumps({k: rep[k] for k in ("hours", "improvementPct", "bootstrap", "deltaMethods")}, ensure_ascii=False, indent=2))
     for s in rep["ladder"]:
         print(f"  {s['id']:>3}  RMSE {s['rmse']:>7}  MAE {s['mae']:>7}  R {s['r']:>6}")
+    if rep.get("realInput"):
+        ri = rep["realInput"]
+        print(f"  [realInput] pilot={ri['pilot']} · {ri['hours']}h · 개선 {ri['improvementPct']}%")
+        for s in ri["ladder"]:
+            print(f"    {s['id']:>3}  RMSE {s['rmse']:>7}  R {s['r']:>6}")
+    if rep.get("realInputError"):
+        print("  [realInput] 실패:", rep["realInputError"])

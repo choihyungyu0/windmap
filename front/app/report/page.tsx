@@ -62,6 +62,19 @@ interface ValidationReport {
     b1b: number[];
     b2: number[];
   };
+  pilot?: string;
+  // 실입력(TMS·ASOS) 스트레스 테스트 — 통제 실험과 나란히 게시
+  realInput?: {
+    caveat: string;
+    pilot: string;
+    hours: number;
+    trainHours: number;
+    testHours: number;
+    metric: string;
+    ladder: { id: string; name: string; rmse: number; mae: number; r: number; note: string }[];
+    improvementPct: number;
+    bootstrap: { median: number; ci95: [number, number]; pLeqZero: number; note: string };
+  };
 }
 
 async function readValidation(): Promise<ValidationReport | null> {
@@ -268,6 +281,63 @@ export default async function ReportPage() {
                   중앙값 {real.bootstrap.median}% 개선이지만 신뢰구간이 0을
                   포함합니다 — 이벤트 희소로 통계적 유의성은 아직 미확보이며,
                   숨기지 않고 보고합니다. {real.bootstrap.note}.
+                </p>
+              </div>
+            </Reveal>
+          )}
+
+          {/* 실입력 스트레스 테스트 — 통제 실험과 나란히 (정직한 한계 보고) */}
+          {real?.realInput && (
+            <Reveal delay={0.05} className="mt-10">
+              <div className="rounded-xl border border-border p-7 lg:p-9">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <h3 className="font-bold">
+                    실입력 스트레스 테스트 —{" "}
+                    <span className="text-muted-foreground">실배출(TMS)·실바람(ASOS)</span>
+                  </h3>
+                  <span className="rounded-full border border-alert-watch/50 bg-alert-watch/10 px-3 py-1 text-xs font-medium text-alert-watch">
+                    {real.realInput.pilot} · {real.realInput.hours}h
+                  </span>
+                </div>
+                <div className="mt-8 grid gap-8 border-t border-border pt-8 sm:grid-cols-2">
+                  {(
+                    [
+                      ["RMSE", "낮을수록 좋음", real.realInput.ladder.map((s) => s.rmse), (v: number) => v.toFixed(2)],
+                      ["R (상관)", "높을수록 좋음", real.realInput.ladder.map((s) => s.r), (v: number) => v.toFixed(2)],
+                    ] as const
+                  ).map(([name, hint, values, fmt]) => (
+                    <div key={name}>
+                      <p className="text-sm font-semibold">
+                        {name}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">· {hint}</span>
+                      </p>
+                      <div className="mt-3">
+                        <MiniBars
+                          labels={real.realInput!.ladder.map((s) => s.id)}
+                          values={values as unknown as number[]}
+                          highlight={2}
+                          format={fmt}
+                          color="#64748b"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-8 border-t border-border pt-6 text-sm leading-relaxed">
+                  위 통제 실험은 보정이 설계상 고치는{" "}
+                  <strong className="font-medium text-foreground">진폭 오차</strong>(굴뚝고·스케일)라
+                  B2가 이깁니다(+{improvement}%). 그러나 실배출·실바람을 그대로 넣으면(청주
+                  소각시설 {real.realInput.hours}h) 실제 바람의{" "}
+                  <strong className="font-medium text-foreground">방향·타이밍 변동</strong>이
+                  지배적이라, 현 <strong className="font-medium text-foreground">선형</strong> 보정은
+                  아직 물리(B1b)를 넘지 못합니다 — 개선{" "}
+                  <strong className="font-data text-alert-warn">
+                    {real.realInput.improvementPct}%
+                  </strong>{" "}
+                  (95% CI [{real.realInput.bootstrap.ci95[0]}, {real.realInput.bootstrap.ci95[1]}]).{" "}
+                  <strong className="text-foreground">숨기지 않고 보고합니다</strong> — 방향 오차
+                  보정은 비선형 모델(P6b)·실측 표본 확대(P2b)의 과제이며, 두 결과 모두 6일치·이벤트
+                  희소로 통계적 유의성은 미확보입니다.
                 </p>
               </div>
             </Reveal>

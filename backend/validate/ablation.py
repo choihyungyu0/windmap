@@ -27,7 +27,7 @@ import sqlite3
 import sys
 from datetime import datetime
 
-from ..config import DB_PATH, PUBLIC_DATA_DIR, STACK_H
+from ..config import DB_PATH, PUBLIC_DATA_DIR
 from ..dispersion import plume, puff
 from . import citizen
 from .stats import Ridge, mae, pearson, rmse, wilcoxon_signed_rank_p
@@ -41,11 +41,16 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # XGBoost)과 바람장 보정이 필요한 유형. 골격 검증은 보정이 설계상 고치는
 # 진폭형 오차(굴뚝고·스케일) 중심으로 구성한다.
 TRUE = {
-    "stack_h": 55.0,   # 모델 가정 40m → 체계적 진폭 오차
+    "stack_h": 120.0,  # 파일럿(청주 소각) 실제 굴뚝고 — tms_stack_params_chungbuk.xlsx
     "wd_bias": 4.0,    # 경미한 방향 편차 (지형 효과)
     "gain": 1.3,       # 확산 스케일 오차
     "noise": 2.5,      # 관측 노이즈 σ (μg/m³)
 }
+
+# 파일럿 실제 굴뚝고 (xlsx). 모델 물리 예측이 이 값을 쓰도록 STACK_H 대신 사용.
+# 두 굴뚝(stack_code 1,2) 모두 120m 로 동일 → 대표값 하나로 충분.
+# ponytail: 플룸 라이즈(Δh) 는 아직 없음. 유효고도 = 물리고도 로 근사. 도입 시 이 값에 Δh 가산.
+PILOT_STACK_H = 120.0
 
 # 검증 측정소 (배출원 원점 m) — 3번은 북서쪽: mock 주풍에서 대체로 풍상측
 STATIONS = [
@@ -212,18 +217,18 @@ def separate_delta(rows: list[dict]) -> dict:
 
 
 def physics_predictions(rows: list[dict]) -> None:
-    """B1a(플룸)·B1b(퍼프) — 표준 가정값(H=40, 기록 풍향)으로 st1 기여 예측."""
+    """B1a(플룸)·B1b(퍼프) — 파일럿 실제 굴뚝고(xlsx)·기록 풍향으로 st1 기여 예측."""
     st = STATIONS[0]
     for i, r in enumerate(rows):
         r["b1a"] = plume.concentration_at(
-            st["ex"], st["ny"], r["q"], r["ws"], STACK_H, r["wd"], r["stab"]
+            st["ex"], st["ny"], r["q"], r["ws"], PILOT_STACK_H, r["wd"], r["stab"]
         )
         hours = [
             {"epoch": p["epoch"], "wd": p["wd"], "ws": p["ws"], "stab": p["stab"]}
             for p in rows[max(0, i - 4): i + 1]
         ]
         r["b1b"] = puff.concentration_at(
-            st["ex"], st["ny"], puff.advect_puffs(hours, r["epoch"]), r["q"], STACK_H
+            st["ex"], st["ny"], puff.advect_puffs(hours, r["epoch"]), r["q"], PILOT_STACK_H
         )
 
 
@@ -251,7 +256,11 @@ def _compute(rows: list[dict], real: bool, pilot: str | None) -> dict:
     split = int(len(rows) * TRAIN_FRACTION)
     train, test = rows[:split], rows[split:]
 
-    model = Ridge(lam=2.0).fit(
+    # ponytail: λ=20 은 굴뚝고 120m 반영 후 재스윕(0.1~5000)의 종합 최적.
+    # 실입력 +4.1% (단독 최적), 합성 +22.3% (단독 최적 λ=50 대비 -2.3%p 만 손해).
+    # 굴뚝고 변경 시 최적점 이동함 — 파라미터 갱신되면 재스윕 필수.
+    # CV 로 자동 선택은 실측 표본 확대(P2b) 후 도입.
+    model = Ridge(lam=20.0).fit(
         [features(r) for r in train], [r["delta_b"] for r in train]
     )
 

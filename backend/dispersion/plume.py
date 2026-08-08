@@ -7,7 +7,30 @@ from __future__ import annotations
 
 import math
 
+_G = 9.81  # m/s²
+_T_AMBIENT_K = 288.15  # 표준대기 15°C — 실측 있으면 인자로 대체
 _SY = {"A": 0.22, "B": 0.16, "C": 0.11, "D": 0.08, "E": 0.06, "F": 0.04}
+
+
+def plume_rise_briggs(
+    v_s: float, d: float, t_s_c: float, u: float, stab: str, t_a_k: float = _T_AMBIENT_K
+) -> float:
+    """Briggs 최종 플룸 상승고 Δh (m).
+    v_s: 배가스 유속 (m/s), d: 굴뚝 내경 (m), t_s_c: 배가스 온도 (°C),
+    u: 굴뚝고 풍속 (m/s), stab: Pasquill 안정도 (A~F), t_a_k: 주변 대기 (K).
+    부력 지배(뜨거운 배가스) 가정 — 운동량 지배는 상승고가 훨씬 작아 무시.
+    """
+    t_s = t_s_c + 273.15
+    if t_s <= t_a_k:
+        return 0.0  # 냉가스 — 부력 없음
+    r = d / 2
+    f = _G * v_s * r * r * (t_s - t_a_k) / t_s  # 부력 플럭스 [m⁴/s³]
+    u_eff = max(u, 0.5)
+    if stab in ("E", "F"):
+        s = 0.02 if stab == "E" else 0.035  # 대기 안정도 매개변수
+        return 2.6 * (f / (u_eff * s)) ** (1.0 / 3.0)
+    x_f = 49 * f ** 0.625 if f < 55 else 119 * f ** 0.4  # 최종 상승 거리 (m)
+    return 1.6 * (f ** (1.0 / 3.0)) * (x_f ** (2.0 / 3.0)) / u_eff
 
 
 def sigma_y(x: float, s: str) -> float:

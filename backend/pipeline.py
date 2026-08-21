@@ -77,19 +77,20 @@ def run_cycle(when: datetime, mock: bool) -> dict:
                 weather_now = results["weather"]["rows"]
                 wd_now = weather_now[0][1] if weather_now else None
                 ws_now = weather_now[0][2] if weather_now else None
+                # B2(보정) 있으면 이걸로 판정, 없으면 B1b 로 폴백 — 계수 부재 시에도 알림 유지.
                 alerts = [
                     {
                         "ts": ts_iso,
                         "receptor_id": p["id"],
                         "receptor": p["name"],
-                        "level": "severe" if p["b1b"] >= 180 else "warn" if p["b1b"] >= 90 else "watch",
-                        "conc": p["b1b"],
+                        "level": "severe" if c >= 180 else "warn" if c >= 90 else "watch",
+                        "conc": c,
                         "arrival_min": p["arrivalMin"],
                         "wd": wd_now,
                         "ws": ws_now,
                     }
                     for p in predictions
-                    if p["b1b"] >= 40
+                    if (c := p.get("b2", p["b1b"])) >= 40
                 ]
                 err2 = supabase_sink.push_alerts(alerts)
                 if err2:

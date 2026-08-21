@@ -356,6 +356,12 @@ def _compute(rows: list[dict], real: bool, pilot: str | None) -> dict:
         },
         "deltaMethods": delta_diag,
         "model": "곱셈형 릿지 보정 (표준 라이브러리 자체 구현) — P6b에서 XGBoost 교체",
+        # ponytail: 라이브 예측이 로드할 계수. 스키마 = features() 순서 고정.
+        "b2Coef": {
+            "lam": model.lam,
+            "features": ["b1b", "b1a", "b1b*sin(wd)", "b1b*cos(wd)", "b1b*ws/10", "b1b*stab/5"],
+            "weights": [round(w, 6) for w in model.w],
+        },
         # 검증창 시계열 샘플(마지막 96h) — /report 라인 차트가 소비
         "series": {
             "note": "검증(테스트) 구간 마지막 96시간 — 관측 Δ농도 vs 물리(B1b) vs 보정(B2)",
@@ -419,7 +425,7 @@ def run_combined() -> dict:
                 k: r[k]
                 for k in (
                     "caveat", "pilot", "hours", "trainHours", "testHours",
-                    "metric", "ladder", "improvementPct", "bootstrap", "series",
+                    "metric", "ladder", "improvementPct", "bootstrap", "series", "b2Coef",
                 )
             }
         else:

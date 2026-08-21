@@ -5,24 +5,112 @@
 
 ## raw/ — 공공 API 실수집 스냅샷
 
-| 파일 | 내용 | 출처 API |
+**수집 커버리지 (2026-08-21 기준)**
+
+| 파일 | 내용 | 기간 · 규모 | 출처 API |
+|---|---|---|---|
+| `tms_chungbuk.csv` | 굴뚝 TMS 배출농도(64사업장/167배출구), 30분 누적 시계열 | 07-10 20:30 ~ 08-21 20:30 · 265,237행 | CleanSYS `rltmMesureResult` |
+| `airkorea_chungbuk.csv` | 34개 측정소 NO₂·SO₂·PM10·PM2.5 등 | 07-03 07시 ~ 08-21 05시 · 1,126시간 | 에어코리아 `getMsrstnAcctoRltmMesureDnsty` |
+| `weather_chungbuk.csv` | ASOS 5개 지점 풍향·풍속·기온·안정도 | 07-03 00시 ~ 08-20 23시 · 1,176시간 | 기상청 `getWthrDataList` |
+| `stations_chungbuk.json` | 34개 측정소 실좌표·도시 | — | 에어코리아 `getMsrstnList` |
+| `facility_coords_chungbuk.json` | 사업장 59곳 지오코딩 실좌표 | — | VWorld 지오코더 |
+| `facility_meta_chungbuk.json` | 사업장 주소·도시 매핑 | — | CleanSYS 연간통계 |
+| `source_coords_chungbuk.json` | 시범배출원 교정 좌표 | — | VWorld |
+| `kindergartens_chungbuk.json` | 충북 유치원 242곳 좌표(WGS84) — 경보 수용지점 | — | Kakao Local |
+| `tms_stack_params_chungbuk.xlsx` | 굴뚝 **실측** 물리 파라미터 (16사업장 40배출구) | — | 사업장 연간보고서 |
+| `tms_stack_params_chungbuk.csv` | ↑ 와 **같은 내용의 CSV 변환본** (백엔드 stdlib `csv` 로 바로 읽도록) | — | 〃 |
+
+**`tms_stack_params_chungbuk.csv` 컬럼** — 원본 xlsx 의 한글 헤더를 ASCII 로 바꾼 것
+(`℃`·`S㎥` 같은 문자가 코드에서 깨지지 않도록). 40행·결측 0.
+
+| 컬럼 | 원본 헤더 | 의미 |
 |---|---|---|
-| `tms_chungbuk.csv` | 굴뚝 TMS 배출농도(64사업장/167배출구), 30분 누적 시계열 | CleanSYS `rltmMesureResult` |
-| `airkorea_chungbuk.csv` | 34개 측정소 NO₂·SO₂·PM10·PM2.5 등 (최근 30일) | 에어코리아 `getMsrstnAcctoRltmMesureDnsty` |
-| `weather_chungbuk.csv` | ASOS 5개 지점 풍향·풍속·기온·안정도 (최근 30일) | 기상청 `getWthrDataList` |
-| `stations_chungbuk.json` | 34개 측정소 실좌표·도시 | 에어코리아 `getMsrstnList` |
-| `facility_coords_chungbuk.json` | 사업장 59곳 지오코딩 실좌표 | VWorld 지오코더 |
-| `facility_meta_chungbuk.json` | 사업장 주소·도시 매핑 | CleanSYS 연간통계 |
-| `source_coords_chungbuk.json` | 시범배출원 교정 좌표 | VWorld |
+| `fact_manage_nm` | 공장명 | TMS `fact_manage_nm` 과 동일 표기 |
+| `stack_code` | stack_code | CleanSYS 배출구번호 — TMS `stack_code` 와 조인 |
+| `stack_height_m` | 굴뚝높이(m) | 유효굴뚝높이 계산 기준 |
+| `inner_diameter_m` | 내경(m) | 플룸 라이즈 입력 |
+| `exit_velocity_ms` | 유속(m/s) | 〃 |
+| `exhaust_temp_c` | 배가스온도(℃) | 〃 (섭씨 — Briggs 식은 K 필요) |
+| `flow_sm3_min` | 배가스유량(S㎥/분) | 배출률 환산용 |
+
+> 파일럿(`청주시 생활폐기물처리시설`)은 배출구 1·2 모두 **굴뚝고 120 m** 로,
+> `backend/validate/ablation.py` 의 `PILOT_STACK_H = 120.0` 과 일치합니다.
+> 나머지 사업장도 이 CSV 로 하드코딩 없이 조회할 수 있습니다.
+> ⚠ 여기 없는 굴뚝은 여전히 가정값입니다(`backend/config.py` `STACK_H = 40.0`).
 
 > `collectors/` 의 live 파이프라인은 이 API들을 SQLite(`windmap.sqlite`)에 적재합니다.
 > 여기 CSV/JSON은 **도 전역 누적 스냅샷**으로, 아래 확산 대시보드와 EDA·분석에 바로 씁니다.
-> TMS는 스냅샷만 제공되므로 스케줄러 30분 누적으로 시계열을 쌓습니다(현재 ~6일치).
+> TMS는 스냅샷만 제공되므로 스케줄러 30분 누적으로 시계열을 쌓습니다(현재 42일치).
+
+> ⚠ **에어코리아·ASOS 는 API 가 "최근 30일" 롤링이라 앞구간이 사라집니다.**
+> 갱신할 때 파일을 **덮어쓰지 말고 기존분과 합집합 병합**하세요(키: AirKorea
+> `dataTime`+`stationName`, ASOS `tm`+`stnId`, 중복은 나중 수집분 채택).
+> TMS 는 append-only 라 상위집합이지만 같은 규칙으로 병합하면 안전합니다.
+
+### 세 데이터의 구간이 서로 다릅니다 (학습 전 필독)
+
+```
+          7/3   7/10                                          8/20 8/21
+           │     │                                              │    │
+TMS        ·     ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●   803/1009h (80%)
+AirKorea   ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●    1126/1175h (96%)
+ASOS       ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●      1176/1176h (100%)
+                 └──────────── 스냅샷 창 988h (TMS ∩ ASOS) ────────┘
+```
+
+| | 구간 | 실제 보유 |
+|---|---|---|
+| TMS (배출) | 07-10 20시 ~ 08-21 20시 | 803h / 1,009h 폭 (80%) |
+| AirKorea (관측) | 07-03 07시 ~ 08-21 05시 | 1,126h / 1,175h 폭 (96%) |
+| ASOS (기상) | 07-03 00시 ~ 08-20 23시 | 1,176h / 1,176h (100%) |
+
+`province_dashboard` 의 시간축은 **`TMS ∩ ASOS` 교집합**(`t0=max(시작)`, `t1=min(끝)`)이라
+스냅샷 창은 **07-10 20시 ~ 08-20 23시 = 988h** 입니다. 확산 계산에 배출과 바람이 둘 다
+있어야 하기 때문입니다. AirKorea 는 이 창을 96%(947/988h) 덮고, 창 밖 앞구간(7/3~7/10)은
+지금은 안 쓰이지만 **한 번 버리면 API 로 다시 못 받으므로** 보존합니다.
+
+### ⚠ `q = 0` 은 "정지"가 아니라 대부분 "결측"입니다
+
+`ablation.load_series_real()` 은 `q = float(nox[t] or 0.0)` → `op = 1 if q > 0 else 0` 이라
+**결측 시간이 전부 "가동정지"로 라벨링**됩니다. 파일럿(`청주시 생활폐기물처리시설`)
+988h 창 기준 실측:
+
+| 구분 | 시간 | 내용 |
+|---|---|---|
+| 유효 NOx 측정 | **756h (77%)** | 전부 `> 0` — 측정된 시간엔 **항상 가동 중이었음** |
+| 수집기 정지 | **204h** | 전 사업장 통째로 없음 = 우리 스케줄러 공백 (플랜트는 가동 중이었을 것) |
+| 파일럿만 행 없음 | 12h | |
+| 비수치 토큰뿐 | 16h | `기기점검`·`보수중`·`측정자료확인중(가동중지)` 등 |
+| **실제 가동정지** | **0h** | 유효 측정 중 합계 0 인 시각 없음 |
+
+즉 `op == 0` 인 232h 중 **최소 216h 는 가동정지가 아니라 결측**입니다.
+
+- 현재 ablation 은 관측을 `synthesize()` 로 합성하고 그 합성이 `q` 에서 나오므로
+  (`q=0` → 기여 0) **자기일관적이라 지금은 문제가 드러나지 않습니다.**
+- 그러나 **실측 관측(P2b)으로 바꾸는 순간 버그가 됩니다.** `separate_delta()` 방법 A 가
+  `op == 0` 시간의 관측을 배경농도로 쓰는데, 그 시간 대부분은 플랜트가 **가동 중**이라
+  배경이 과대추정되고 Δ 분리가 무너집니다.
+- 권장: 결측(`None`)과 정지(`0`)를 **다른 값으로 구분**해서 스냅샷에 싣고,
+  결측 시각은 학습·배경추정에서 **제외**. 현재 `province_dashboard` 는 결측을
+  `np.zeros` 로 채우므로 이 구분을 살리려면 생성기 수정이 필요합니다(데이터 담당 과제).
+
+주요 수집기 정지 구간: `07-29 15시~08-01 19시(77h)`, `08-19 05시~08-20 16시(36h)`,
+`07-18 08시~07-19 09시(26h)`, `08-09 23시~08-10 19시(21h)`, `08-08 13시~08-09 09시(21h)`.
+
+### AirKorea 는 현재 ablation 에 쓰이지 않습니다
+
+`load_series_real()` 이 읽는 스냅샷 키는 `times`·`facilities`·`emis.NOx`·`wind` 뿐이고
+**`meas`(측정소 실관측)는 읽지 않습니다.** 정답(관측)은 `synthesize()` 가 만드는
+가상 측정소 3곳(`st1`~`st3`, 배출원 기준 고정 오프셋)에서 나옵니다 —
+리포트의 `kind: "real-input-twin"` 이 뜻하는 바가 **입력만 실측, 정답은 합성**입니다.
+따라서 AirKorea 커버리지는 현재 표본 수에 영향을 주지 않으며,
+실측 검증(P2b)으로 넘어갈 때 비로소 제약이 됩니다.
 
 ## chungbuk_dispersion_dashboard.html — 충북 전역 확산 대시보드
 
 브라우저로 열면 바로 구동됩니다(자체완결, 인터넷=지도타일만 필요).
-위 `raw/` 데이터로 생성되었으며 포함 기능:
+위 `raw/` 데이터로 생성되었으며(**7/10 20시 ~ 8/20 23시 · 988시간**, 시간축 = TMS ∩ ASOS),
+포함 기능:
 - 지도: 배출 굴뚝 59 + 대기측정소 34 (실좌표)
 - 시군 필터 · 물질(NO₂·SO₂·HCl·PM10·PM2.5) 선택
 - 시간 슬라이더 · 재생/정지 · 배속 · 날짜 점프
@@ -32,3 +120,23 @@
 한계: 도 전역 히트맵은 **풍향·풍속·배출량 기반 근사 확산**(검증된 물리 아님).
 PM10·PM2.5는 입자상이라 굴뚝 먼지(TSP)를 가스모델로 근사(경고 배너 표기).
 자세한 물질 선정 근거는 `../docs/오염물질_선정_분석.md`, API 상세는 `../docs/API_명세서.md`.
+
+### 갱신 절차 (표본을 늘리려면 여기부터)
+
+`backend/validate/ablation.py` 의 **실입력 표본 수는 raw CSV 가 아니라 이 대시보드의
+`const D` 가 결정합니다.** raw 를 아무리 쌓아도 대시보드를 재생성하지 않으면 표본은
+그대로입니다(실제로 raw 는 8/3까지 쌓였는데 `D` 는 7/16 에 멈춰 148h 로 고정돼 있었음).
+
+```
+1) 수집       : (데이터 담당 로컬) python src/data_collector.py --tms-only  ...
+2) raw 병합   : 위 '합집합 병합' 규칙으로 backend/data/raw/ 갱신
+3) 대시보드   : (데이터 담당 로컬) python src/province_dashboard.py
+                → output/chungbuk_dispersion_dashboard.html 을 backend/data/ 로 복사
+4) 프론트 스냅샷: python backend/data/build_snapshot.py
+                → front/public/data/chungbuk.json
+5) 재학습     : python -m backend.validate.ablation ...   ← AI 담당
+```
+
+> 3번 생성기(`src/province_dashboard.py`)는 데이터 담당 로컬 파이프라인에 있습니다.
+> 시간축은 `TMS ∩ ASOS` 교집합이라, **ASOS(weather) 앞구간을 잃으면 TMS 앞구간도
+> 함께 버려집니다** — 병합 규칙을 꼭 지켜주세요.

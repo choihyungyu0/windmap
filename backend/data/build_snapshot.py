@@ -6,7 +6,7 @@ build_snapshot.py — 충북 전역 확산 대시보드(const D)를 프론트 �
 
 `chungbuk_dispersion_dashboard.html` 안의 `const D = {...};` 는 수집기(collectors/)가
 공공 API에서 받아온 raw/ 데이터를 **시군별·시간별로 집계한 완결 데이터셋**이다
-(148시간, 시설59·측정소34·시군8, 배출 NOx/HCl/SOx/TSP + 측정 NO2/SO2/PM10/PM25 +
+(988시간, 시설59·측정소34·시군8, 배출 NOx/HCl/SOx/TSP + 측정 NO2/SO2/PM10/PM25 +
 시군별 wd/ws). 이 스크립트는 그 객체를 그대로 뽑아 프론트가 fetch 하는
 `front/public/data/chungbuk.json` 으로 기록한다.
 

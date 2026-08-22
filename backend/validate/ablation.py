@@ -237,13 +237,14 @@ def physics_predictions(rows: list[dict]) -> None:
 def features(r: dict) -> list[float]:
     """곱셈형 보정 피처 — 전부 물리 예측에 비례해 '기여 0 → 예측 0' 보장.
     (절편형은 조용한 시간대에 잡음을 더해 기각 — 실험 로그 참조)"""
+    # ponytail: 원래 6피처였으나 계수 안정성 진단(2026-08-22)에서 cos(wd)·ws/10 이
+    # 5-fold·풍향·풍속 슬라이스마다 부호 뒤집힘 → 노이즈로 판정 후 제거. 4피처 축소로
+    # 실입력 성능 유지(2.7→2.2%p), 통제에서 오히려 개선(22.4→25.1%). λ는 _compute() 참조.
     wd = math.radians(r["wd"])
     return [
         r["b1b"],
         r["b1a"],
         r["b1b"] * math.sin(wd),
-        r["b1b"] * math.cos(wd),
-        r["b1b"] * r["ws"] / 10.0,
         r["b1b"] * STAB_IDX[r["stab"]] / 5.0,
     ]
 
@@ -258,11 +259,10 @@ def _compute(rows: list[dict], real: bool, pilot: str | None) -> dict:
     split = int(len(rows) * TRAIN_FRACTION)
     train, test = rows[:split], rows[split:]
 
-    # ponytail: λ=20 은 굴뚝고 120m 반영 후 재스윕(0.1~5000)의 종합 최적.
-    # 실입력 +4.1% (단독 최적), 합성 +22.3% (단독 최적 λ=50 대비 -2.3%p 만 손해).
-    # 굴뚝고 변경 시 최적점 이동함 — 파라미터 갱신되면 재스윕 필수.
-    # CV 로 자동 선택은 실측 표본 확대(P2b) 후 도입.
-    model = Ridge(lam=20.0).fit(
+    # ponytail: λ=15 는 4피처 축소(2026-08-22) 후 실입력·통제 종합 최적 —
+    # 실입력 +2.2% · 통제 +25.1%. 실입력 단독 최적은 λ=50 이나 통제에서 크게 손해라 절충.
+    # 피처/굴뚝고 변경 시 재스윕 필수. CV 로 자동 선택은 실측 표본 확대(P2b) 후 도입.
+    model = Ridge(lam=15.0).fit(
         [features(r) for r in train], [r["delta_b"] for r in train]
     )
 
@@ -359,7 +359,7 @@ def _compute(rows: list[dict], real: bool, pilot: str | None) -> dict:
         # ponytail: 라이브 예측이 로드할 계수. 스키마 = features() 순서 고정.
         "b2Coef": {
             "lam": model.lam,
-            "features": ["b1b", "b1a", "b1b*sin(wd)", "b1b*cos(wd)", "b1b*ws/10", "b1b*stab/5"],
+            "features": ["b1b", "b1a", "b1b*sin(wd)", "b1b*stab/5"],
             "weights": [round(w, 6) for w in model.w],
         },
         # 검증창 시계열 샘플(마지막 96h) — /report 라인 차트가 소비

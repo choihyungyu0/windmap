@@ -32,20 +32,17 @@ def _load_b2_weights() -> list[float] | None:
     except (OSError, ValueError):
         return None
     coef = (report.get("realInput") or {}).get("b2Coef") or report.get("b2Coef")
-    if not coef or len(coef.get("weights", [])) != 6:
+    if not coef or len(coef.get("weights", [])) != 4:
         return None
     return coef["weights"]
 
 
-def _apply_b2(b1a: float, b1b: float, wd: float, ws: float, stab: str, w: list[float]) -> float:
+def _apply_b2(b1a: float, b1b: float, wd: float, stab: str, w: list[float]) -> float:
     """릿지 보정 — ablation.features() 와 동일 피처 순서. 배출원 기여는 음수 불가 → 0 절단."""
-    wr = math.radians(wd)
     x = [
         b1b,
         b1a,
-        b1b * math.sin(wr),
-        b1b * math.cos(wr),
-        b1b * ws / 10.0,
+        b1b * math.sin(math.radians(wd)),
         b1b * _STAB_IDX.get(stab, 3) / 5.0,
     ]
     return max(0.0, sum(wi * xi for wi, xi in zip(w, x)))
@@ -106,7 +103,7 @@ def predict_all(con: sqlite3.Connection, ts_iso: str) -> list[dict]:
             "arrivalMin": arr,
         }
         if b2_w is not None:
-            entry["b2"] = round(_apply_b2(b1a, b1b, now["wd"], now["ws"], now["stab"], b2_w), 1)
+            entry["b2"] = round(_apply_b2(b1a, b1b, now["wd"], now["stab"], b2_w), 1)
         summary.append(entry)
 
     con.executemany(

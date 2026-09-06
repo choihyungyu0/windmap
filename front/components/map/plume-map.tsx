@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { Layer, PickingInfo } from "@deck.gl/core";
-import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { BitmapLayer, PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import {
   bearingDeg,
@@ -16,7 +16,7 @@ import {
   type WindArrow,
 } from "@/lib/chungbuk";
 import { smoothPath, type Trajectory } from "@/lib/trajectory";
-import type { RoadRoute } from "@/lib/road-route";
+import type { CorridorImage } from "@/lib/plume-corridor";
 
 /**
  * 충북 전역 확산 지도 (F-MAP-01) — MapLibre(CARTO dark-matter, 무키) 위에
@@ -52,8 +52,8 @@ export interface PlumeMapProps {
   trajectory: Trajectory | null;
   /** 선택이 바뀌면 경로 전체가 보이도록 카메라 이동 — key 가 바뀔 때만 */
   focus: { key: string; bounds: [[number, number], [number, number]] } | null;
-  /** 시각별 지점을 경유하는 도로 경로(OSRM) — 있으면 본선이 되고 바람 궤적은 참고선 */
-  roadRoute: RoadRoute | null;
+  /** 경로를 따라 벌어지는 확산 띠 래스터(횡풍 σy) — 색은 상대 농도 */
+  corridor: CorridorImage | null;
   /** 레이어 updateTriggers 키 — 물질·시각·시군필터가 바뀔 때만 재계산 */
   frameKey: string;
   onHover: (h: MapHover | null) => void;
@@ -119,80 +119,52 @@ function buildLayers(p: PlumeMapProps): Layer[] {
   }
 
   // 예측 이동 경로 — 선택 굴뚝에서 시군 실측 바람을 시간별로 따라간 전진 궤적.
-  // 내비 경로처럼 어두운 외곽선 + 밝은 본선. 도로 경로(OSRM)가 있으면 그것이 본선이 되고
-  // 바람 궤적은 얇은 참고선으로 남는다. 데이터 범위 밖(마지막 바람 유지) 구간은 옅게.
+  // 확산 띠(부채꼴)가 본체: 굴뚝 근처 적색 → 멀어질수록 시안. 그 위에 가는 중심선·정시 노드.
   if (p.trajectory) {
     const tr = p.trajectory;
-    const road = p.roadRoute;
-    const routes = road
-      ? [{ id: "road", path: road.path, alpha: 255 }]
-      : [
-          { id: "solid", path: smoothPath(tr.path.slice(0, tr.splitIndex + 1)), alpha: 255 },
-          { id: "assumed", path: smoothPath(tr.path.slice(tr.splitIndex)), alpha: 110 },
-        ].filter((r) => r.path.length > 1);
-    type Route = (typeof routes)[number];
     type Node = Trajectory["nodes"][number];
-    // 정시 노드 — 도로 경로면 경유점이 도로에 스냅된 위치 (snapped[0] 은 출발점)
-    const nodes: Node[] = tr.nodes.map((n, k) => ({
-      ...n,
-      position: road ? (road.snapped[k + 1] ?? n.position) : n.position,
-    }));
-    const mainPath = road ? road.path : tr.path;
-    const last = mainPath[mainPath.length - 1];
-    const prev = mainPath[Math.max(mainPath.length - 2, 0)];
+    const center = smoothPath(tr.path, 2);
+    const last = tr.path[tr.path.length - 1];
+    const prev = tr.path[Math.max(tr.path.length - 2, 0)];
     const heading = bearingDeg(prev[1], prev[0], last[1], last[0]); // 도착 방위
     const hr = (heading * Math.PI) / 180;
-    if (road) {
+    if (p.corridor) {
       out.push(
-        new PathLayer<[number, number][]>({
-          id: "trajectory-air-ref",
-          data: [smoothPath(tr.path)],
-          getPath: (d) => d,
-          getColor: [0, 184, 212, 90],
-          widthUnits: "pixels",
-          getWidth: 2,
-          capRounded: true,
-          jointRounded: true,
+        new BitmapLayer({
+          id: "trajectory-corridor",
+          image: p.corridor.image,
+          bounds: p.corridor.bounds,
+          pickable: false,
         })
       );
     }
     out.push(
-      new PathLayer<Route>({
-        id: "trajectory-casing",
-        data: routes,
-        getPath: (d) => d.path,
-        getColor: (d) => [6, 18, 30, Math.round(d.alpha * 0.85)],
-        widthUnits: "pixels",
-        getWidth: 8,
-        capRounded: true,
-        jointRounded: true,
-      }),
-      new PathLayer<Route>({
+      new PathLayer<[number, number][]>({
         id: "trajectory-line",
-        data: routes,
-        getPath: (d) => d.path,
-        getColor: (d) => [0, 184, 212, d.alpha],
+        data: [center],
+        getPath: (d) => d,
+        getColor: [255, 255, 255, 200],
         widthUnits: "pixels",
-        getWidth: 4,
+        getWidth: 1.5,
         capRounded: true,
         jointRounded: true,
       }),
       new ScatterplotLayer<Node>({
         id: "trajectory-nodes",
-        data: nodes,
+        data: tr.nodes,
         getPosition: (d) => d.position,
-        getRadius: 5,
+        getRadius: 4.5,
         radiusUnits: "pixels",
         // 데이터 범위 밖(바람 유지 가정) 노드는 속이 빈 원
-        getFillColor: (d) => (d.assumed ? [11, 27, 43, 235] : [0, 184, 212, 255]),
+        getFillColor: (d) => (d.assumed ? [11, 27, 43, 235] : [255, 255, 255, 255]),
         stroked: true,
-        getLineColor: (d) => (d.assumed ? [0, 184, 212, 160] : [255, 255, 255, 230]),
+        getLineColor: [11, 27, 43, 220],
         getLineWidth: 1.5,
         lineWidthUnits: "pixels",
       }),
       new TextLayer<Node>({
         id: "trajectory-labels",
-        data: nodes,
+        data: tr.nodes,
         getPosition: (d) => d.position,
         getText: (d) => `+${d.hour}h`,
         getSize: 12,
@@ -213,7 +185,7 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         getAngle: () => -heading, // '▲'는 북향(0°). deck 은 CCW 관례라 음수
         getPixelOffset: [Math.round(14 * Math.sin(hr)), Math.round(-14 * Math.cos(hr))],
         getSize: 18,
-        getColor: [0, 184, 212, 255],
+        getColor: [255, 255, 255, 240],
         characterSet: ["▲"],
         billboard: true,
         fontSettings: { buffer: 8 },

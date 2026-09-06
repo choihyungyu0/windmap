@@ -148,6 +148,21 @@ export function ControlRoom({
     [snap, selectedFacility, t, layers.trajectory]
   );
 
+  // 선택이 바뀔 때 경로 전체가 보이도록 지도 이동 — key 는 굴뚝 기준이라 재생 중엔 그대로
+  const focus = useMemo(() => {
+    if (!trajectory || !selectedFacility) return null;
+    const pts = [trajectory.origin, ...trajectory.nodes.map((n) => n.position)];
+    const lngs = pts.map((q) => q[0]);
+    const lats = pts.map((q) => q[1]);
+    return {
+      key: `${selectedFacility.name}|${selectedFacility.city}`,
+      bounds: [
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
+      ] as [[number, number], [number, number]],
+    };
+  }, [trajectory, selectedFacility]);
+
   // 상위 배출 시설 (현재 시각) — 우측 패널
   const topEmitters = useMemo(
     () => [...facilities].filter((f) => f.E > 0).sort((a, b) => b.E - a.E).slice(0, 8),
@@ -398,6 +413,7 @@ export function ControlRoom({
                 layers={layers}
                 frameKey={frameKey}
                 trajectory={trajectory}
+                focus={focus}
                 onHover={setHover}
                 onClick={onMapClick}
                 onTileError={() => setTilesError(true)}

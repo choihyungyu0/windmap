@@ -7,6 +7,7 @@ import type { Layer, PickingInfo } from "@deck.gl/core";
 import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import {
+  bearingDeg,
   HEAT_COLOR_RANGE,
   type Domain,
   type FacilityMarker,
@@ -14,7 +15,7 @@ import {
   type StationMarker,
   type WindArrow,
 } from "@/lib/chungbuk";
-import { dashSegments, type Trajectory } from "@/lib/trajectory";
+import { smoothPath, type Trajectory } from "@/lib/trajectory";
 
 /**
  * 충북 전역 확산 지도 (F-MAP-01) — MapLibre(CARTO dark-matter, 무키) 위에
@@ -48,6 +49,8 @@ export interface PlumeMapProps {
   layers: { dispersion: boolean; facilities: boolean; stations: boolean; wind: boolean };
   /** 선택 굴뚝의 시간별 예측 이동 경로 — 없으면 null */
   trajectory: Trajectory | null;
+  /** 선택이 바뀌면 경로 전체가 보이도록 카메라 이동 — key 가 바뀔 때만 */
+  focus: { key: string; bounds: [[number, number], [number, number]] } | null;
   /** 레이어 updateTriggers 키 — 물질·시각·시군필터가 바뀔 때만 재계산 */
   frameKey: string;
   onHover: (h: MapHover | null) => void;
@@ -112,17 +115,37 @@ function buildLayers(p: PlumeMapProps): Layer[] {
     );
   }
 
-  // 예측 이동 경로 — 선택 굴뚝에서 시군 실측 바람을 시간별로 따라간 전진 궤적
+  // 예측 이동 경로 — 선택 굴뚝에서 시군 실측 바람을 시간별로 따라간 전진 궤적.
+  // 내비 경로처럼 어두운 외곽선 + 밝은 본선. 데이터 범위 밖(마지막 바람 유지) 구간은 옅게.
   if (p.trajectory) {
     const tr = p.trajectory;
+    const routes = [
+      { id: "solid", path: smoothPath(tr.path.slice(0, tr.splitIndex + 1)), alpha: 255 },
+      { id: "assumed", path: smoothPath(tr.path.slice(tr.splitIndex)), alpha: 110 },
+    ].filter((r) => r.path.length > 1);
+    type Route = (typeof routes)[number];
+    const last = tr.path[tr.path.length - 1];
+    const prev = tr.path[Math.max(tr.path.length - 2, 0)];
+    const heading = bearingDeg(prev[1], prev[0], last[1], last[0]); // 도착 방위
+    const hr = (heading * Math.PI) / 180;
     out.push(
-      new PathLayer<[number, number][]>({
-        id: "trajectory-path",
-        data: dashSegments(tr.path, 1400, 800),
-        getPath: (d) => d,
-        getColor: [0, 184, 212, 235],
+      new PathLayer<Route>({
+        id: "trajectory-casing",
+        data: routes,
+        getPath: (d) => d.path,
+        getColor: (d) => [6, 18, 30, Math.round(d.alpha * 0.85)],
         widthUnits: "pixels",
-        getWidth: 2.5,
+        getWidth: 8,
+        capRounded: true,
+        jointRounded: true,
+      }),
+      new PathLayer<Route>({
+        id: "trajectory-line",
+        data: routes,
+        getPath: (d) => d.path,
+        getColor: (d) => [0, 184, 212, d.alpha],
+        widthUnits: "pixels",
+        getWidth: 4,
         capRounded: true,
         jointRounded: true,
       }),
@@ -135,7 +158,7 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         // 데이터 범위 밖(바람 유지 가정) 노드는 속이 빈 원
         getFillColor: (d) => (d.assumed ? [11, 27, 43, 235] : [0, 184, 212, 255]),
         stroked: true,
-        getLineColor: [0, 184, 212, 255],
+        getLineColor: (d) => (d.assumed ? [0, 184, 212, 160] : [255, 255, 255, 230]),
         getLineWidth: 1.5,
         lineWidthUnits: "pixels",
       }),
@@ -146,12 +169,26 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         getText: (d) => `+${d.hour}h`,
         getSize: 12,
         getColor: [215, 229, 240, 255],
-        getPixelOffset: [0, -15],
+        getPixelOffset: [0, -16],
         background: true,
         getBackgroundColor: [11, 27, 43, 210],
         backgroundPadding: [5, 2],
         characterSet: "+0123456789h".split(""),
         billboard: true,
+      }),
+      // 도착 방향 화살표 — 마지막 노드 바로 앞, 진행 방위로 회전
+      new TextLayer<[number, number]>({
+        id: "trajectory-head",
+        data: [last],
+        getPosition: (d) => d,
+        getText: () => "▲",
+        getAngle: () => -heading, // '▲'는 북향(0°). deck 은 CCW 관례라 음수
+        getPixelOffset: [Math.round(14 * Math.sin(hr)), Math.round(-14 * Math.cos(hr))],
+        getSize: 18,
+        getColor: [0, 184, 212, 255],
+        characterSet: ["▲"],
+        billboard: true,
+        fontSettings: { buffer: 8 },
       }),
       new ScatterplotLayer<[number, number]>({
         id: "trajectory-origin",
@@ -294,6 +331,15 @@ export function PlumeMap(props: PlumeMapProps) {
       overlayRef.current = null;
     };
   }, []);
+
+  // 굴뚝 선택이 바뀌면 경로 전체가 보이도록 이동 — 재생 중 시각 변화에는 반응하지 않음
+  const focusKey = props.focus?.key ?? null;
+  useEffect(() => {
+    const map = mapRef.current;
+    const f = propsRef.current.focus;
+    if (!map || !f) return;
+    map.fitBounds(f.bounds, { padding: 90, maxZoom: 11, duration: 700 });
+  }, [focusKey]);
 
   // 상태 변경 → 레이어 갱신 (매 렌더, 레이어 생성은 저비용)
   useEffect(() => {

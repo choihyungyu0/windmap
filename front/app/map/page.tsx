@@ -12,13 +12,15 @@ export const metadata: Metadata = {
 export default async function MapPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; t?: string; sel?: string }>;
 }) {
   // F-SRCH-01: 홈 지역 검색에서 넘어온 검색어 — 지오코딩(P5) 전까지 배지로 인지
-  const { q } = await searchParams;
+  // ?t=시각인덱스&sel=굴뚝명 — 특정 장면(시각·예측 이동 경로) 딥링크
+  const { q, t, sel } = await searchParams;
+  const tNum = t != null && t !== "" && Number.isFinite(Number(t)) ? Number(t) : undefined;
   return (
     <main id="main">
-      <ControlRoom query={q} />
+      <ControlRoom query={q} initialT={tNum} initialSel={sel} />
     </main>
   );
 }

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LogoDark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
 import type { MapHover } from "./plume-map";
+import { forwardTrajectory } from "@/lib/trajectory";
 import {
   buildDispersionPoints,
   facilityMarkers,
@@ -31,7 +32,17 @@ const PlumeMap = dynamic(() => import("./plume-map").then((m) => m.PlumeMap), {
 const SPEEDS = [1, 2, 4] as const;
 
 /* ── 메인 관제 화면 ── */
-export function ControlRoom({ query }: { query?: string }) {
+export function ControlRoom({
+  query,
+  initialT,
+  initialSel,
+}: {
+  query?: string;
+  /** 딥링크 ?t= — 시각 인덱스 */
+  initialT?: number;
+  /** 딥링크 ?sel= — 예측 이동 경로를 그릴 굴뚝명 */
+  initialSel?: string;
+}) {
   const [snap, setSnap] = useState<ChungbukSnapshot | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [pol, setPol] = useState<PollutantKey>("NOx");
@@ -44,8 +55,11 @@ export function ControlRoom({ query }: { query?: string }) {
     facilities: true,
     stations: true,
     wind: true,
+    trajectory: true,
   });
   const [hover, setHover] = useState<MapHover | null>(null);
+  /** 클릭으로 고른 굴뚝 — 예측 이동 경로의 출발점 */
+  const [selected, setSelected] = useState<{ name: string; city: string } | null>(null);
   const [tilesError, setTilesError] = useState(false);
   const [clock, setClock] = useState<string | null>(null);
 
@@ -60,14 +74,21 @@ export function ControlRoom({ query }: { query?: string }) {
           ? s.cities.filter((c) => c.includes(query.trim()) || query.includes(c))
           : [];
         setSelectedCities(new Set(matched.length ? matched : s.cities));
-        setT(s.n - 1); // 최신 시각부터
+        // 딥링크로 시각·굴뚝이 지정되면 그 장면으로, 아니면 최신 시각부터
+        const tInit =
+          initialT != null && initialT >= 0 && initialT < s.n
+            ? Math.floor(initialT)
+            : s.n - 1;
+        setT(tInit);
+        const pre = initialSel ? s.facilities.find((f) => f.name === initialSel) : undefined;
+        if (pre) setSelected({ name: pre.name, city: pre.city });
         setSnap(s);
       })
       .catch(() => alive && setLoadError(true));
     return () => {
       alive = false;
     };
-  }, [query]);
+  }, [query, initialT, initialSel]);
 
   // 재생 — 700/speed ms 스텝, 마지막에서 처음으로 순환
   useEffect(() => {
@@ -109,6 +130,24 @@ export function ControlRoom({ query }: { query?: string }) {
     [snap, t, cityKey] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  // 선택 굴뚝의 전진 궤적 — 현재 시각 방출 기준 +6h. 재생 중이면 시각을 따라 다시 그려진다.
+  const selectedFacility = useMemo(
+    () =>
+      snap && selected
+        ? (snap.facilities.find(
+            (f) => f.name === selected.name && f.city === selected.city
+          ) ?? null)
+        : null,
+    [snap, selected]
+  );
+  const trajectory = useMemo(
+    () =>
+      snap && selectedFacility && layers.trajectory
+        ? forwardTrajectory(snap, selectedFacility, t, 6)
+        : null,
+    [snap, selectedFacility, t, layers.trajectory]
+  );
+
   // 상위 배출 시설 (현재 시각) — 우측 패널
   const topEmitters = useMemo(
     () => [...facilities].filter((f) => f.E > 0).sort((a, b) => b.E - a.E).slice(0, 8),
@@ -119,6 +158,18 @@ export function ControlRoom({ query }: { query?: string }) {
   const cfg = POLLUTANTS[pol];
   const measUnit = pol === "PM10" || pol === "PM25" ? " µg/m³" : "";
 
+  // 굴뚝 클릭 → 선택/해제, 빈 곳 클릭 → 해제
+  function onMapClick(h: MapHover | null) {
+    if (!h || h.kind !== "facility") {
+      setSelected(null);
+      return;
+    }
+    setSelected((prev) =>
+      prev && prev.name === h.name && prev.city === h.city
+        ? null
+        : { name: h.name, city: h.city }
+    );
+  }
   function toggleCity(c: string) {
     setSelectedCities((prev) => {
       const next = new Set(prev);
@@ -295,6 +346,7 @@ export function ControlRoom({ query }: { query?: string }) {
                   ["facilities", "배출 굴뚝"],
                   ["stations", "대기측정소"],
                   ["wind", "시군 바람"],
+                  ["trajectory", "예측 이동 경로"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2.5 text-sm">
@@ -345,7 +397,9 @@ export function ControlRoom({ query }: { query?: string }) {
                 domain={snap.domain}
                 layers={layers}
                 frameKey={frameKey}
+                trajectory={trajectory}
                 onHover={setHover}
+                onClick={onMapClick}
                 onTileError={() => setTilesError(true)}
               />
             ) : (
@@ -360,6 +414,61 @@ export function ControlRoom({ query }: { query?: string }) {
             {tilesError && (
               <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-alert-watch/50 bg-control-bg/90 px-4 py-1.5 text-xs text-alert-watch backdrop-blur">
                 배경지도 타일을 불러오지 못했습니다 — 네트워크 확인 (확산 표시는 정상)
+              </div>
+            )}
+
+            {/* 예측 이동 경로 패널 — 선택 굴뚝의 +1h…+6h 위치 */}
+            {layers.trajectory && trajectory && selectedFacility && (
+              <div className="absolute bottom-9 right-3 z-10 w-[20rem] rounded-md border border-wind/40 bg-control-bg/95 px-3 py-2.5 text-xs backdrop-blur">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="kicker text-wind">예측 이동 경로</div>
+                    <div
+                      className="mt-0.5 truncate font-medium text-control-text"
+                      title={selectedFacility.name}
+                    >
+                      {selectedFacility.name}
+                    </div>
+                    <div className="text-control-muted">
+                      {selectedFacility.city} · {snap?.times[t]} 방출 기준
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    aria-label="경로 닫기"
+                    className="-mr-1 -mt-1 rounded px-1.5 text-base leading-none text-control-muted hover:text-control-text"
+                  >
+                    ×
+                  </button>
+                </div>
+                <ol className="font-data mt-2 space-y-1">
+                  {trajectory.nodes.map((n) => (
+                    <li key={n.hour} className="flex items-center gap-2 whitespace-nowrap">
+                      <span className="w-7 text-wind">+{n.hour}h</span>
+                      <span className="w-[4.4rem] text-control-muted">{n.timeLabel}</span>
+                      <span className="w-14 text-right text-control-text">
+                        {n.distKm.toFixed(1)} km
+                      </span>
+                      <span className="flex-1 truncate text-right text-control-muted">
+                        {n.city} {n.ws.toFixed(1)} m/s
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {trajectory.nodes.some((n) => n.assumed) && (
+                  <p className="mt-1.5 text-[10px] text-alert-watch">
+                    ※ 데이터 마지막 시각 이후는 마지막 바람 유지 가정
+                  </p>
+                )}
+                <p className="mt-1.5 text-[10px] leading-snug text-control-muted">
+                  시군 실측 바람을 시간별로 따라간 중심 이동 경로 — 확산 폭·농도가 아닙니다.
+                </p>
+              </div>
+            )}
+            {layers.trajectory && !selectedFacility && snap && !loadError && (
+              <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full border border-control-line bg-control-bg/85 px-3 py-1.5 text-[11px] text-control-muted backdrop-blur">
+                굴뚝을 클릭하면 시간별 예측 이동 경로를 표시합니다
               </div>
             )}
 
@@ -419,7 +528,8 @@ export function ControlRoom({ query }: { query?: string }) {
             TMS)과 시군별 실측 바람(ASOS)으로 그린 <strong>근사 확산 풋프린트</strong>{" "}
             — 풍향·풍속·배출량 기반이며 검증된 물리 모델이 아닙니다. 색은 절대
             농도(μg/m³)가 아닌 상대 영향 강도입니다. 측정소 색은 에어코리아 실측값.
-            배경지도 © CARTO / OpenStreetMap. 배출 영향 범위 추정이며 특정 시설을
+            예측 이동 경로는 시군 실측 바람을 시간별로 따라간 전진 궤적(중심선)이며
+            확산 폭·농도가 아닙니다. 배경지도 © CARTO / OpenStreetMap. 배출 영향 범위 추정이며 특정 시설을
             오염 피해의 인과로 지목하지 않습니다.
           </p>
         </section>
@@ -433,7 +543,7 @@ export function ControlRoom({ query }: { query?: string }) {
             상위 배출 시설 · {cfg.label}
           </h2>
           <p className="mt-1 text-xs text-control-muted">
-            {snap ? snap.times[t] : "—"} 기준 · 선택 시군
+            {snap ? snap.times[t] : "—"} 기준 · 선택 시군 · 클릭하면 예측 이동 경로
           </p>
           <ul className="mt-4 flex flex-col gap-2.5">
             {topEmitters.length === 0 && (
@@ -441,10 +551,29 @@ export function ControlRoom({ query }: { query?: string }) {
                 이 시각·물질·시군에서 배출 신호가 없습니다.
               </li>
             )}
-            {topEmitters.map((f) => (
+            {topEmitters.map((f) => {
+              const isSel = selected?.name === f.name && selected?.city === f.city;
+              const pick = () =>
+                setSelected(isSel ? null : { name: f.name, city: f.city });
+              return (
               <li
                 key={f.name}
-                className="rounded-md border border-control-line bg-control-bg/50 px-3.5 py-2.5"
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSel}
+                onClick={pick}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    pick();
+                  }
+                }}
+                className={
+                  "cursor-pointer rounded-md border px-3.5 py-2.5 transition-colors " +
+                  (isSel
+                    ? "border-wind/60 bg-wind/10"
+                    : "border-control-line bg-control-bg/50 hover:border-wind/40")
+                }
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-medium" title={f.name}>
@@ -465,7 +594,8 @@ export function ControlRoom({ query }: { query?: string }) {
                   </span>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
           <Link
             href="/alerts"

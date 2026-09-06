@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { Layer, PickingInfo } from "@deck.gl/core";
-import { ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { PathLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import {
   HEAT_COLOR_RANGE,
@@ -14,6 +14,7 @@ import {
   type StationMarker,
   type WindArrow,
 } from "@/lib/chungbuk";
+import { dashSegments, type Trajectory } from "@/lib/trajectory";
 
 /**
  * 충북 전역 확산 지도 (F-MAP-01) — MapLibre(CARTO dark-matter, 무키) 위에
@@ -45,9 +46,13 @@ export interface PlumeMapProps {
   arrows: WindArrow[];
   domain: Domain;
   layers: { dispersion: boolean; facilities: boolean; stations: boolean; wind: boolean };
+  /** 선택 굴뚝의 시간별 예측 이동 경로 — 없으면 null */
+  trajectory: Trajectory | null;
   /** 레이어 updateTriggers 키 — 물질·시각·시군필터가 바뀔 때만 재계산 */
   frameKey: string;
   onHover: (h: MapHover | null) => void;
+  /** 굴뚝·측정소 클릭 — 빈 곳 클릭이면 null */
+  onClick: (h: MapHover | null) => void;
   onTileError: () => void;
 }
 
@@ -103,6 +108,62 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         billboard: true,
         fontSettings: { buffer: 8 },
         updateTriggers: { getAngle: p.frameKey },
+      })
+    );
+  }
+
+  // 예측 이동 경로 — 선택 굴뚝에서 시군 실측 바람을 시간별로 따라간 전진 궤적
+  if (p.trajectory) {
+    const tr = p.trajectory;
+    out.push(
+      new PathLayer<[number, number][]>({
+        id: "trajectory-path",
+        data: dashSegments(tr.path, 1400, 800),
+        getPath: (d) => d,
+        getColor: [0, 184, 212, 235],
+        widthUnits: "pixels",
+        getWidth: 2.5,
+        capRounded: true,
+        jointRounded: true,
+      }),
+      new ScatterplotLayer<Trajectory["nodes"][number]>({
+        id: "trajectory-nodes",
+        data: tr.nodes,
+        getPosition: (d) => d.position,
+        getRadius: 5,
+        radiusUnits: "pixels",
+        // 데이터 범위 밖(바람 유지 가정) 노드는 속이 빈 원
+        getFillColor: (d) => (d.assumed ? [11, 27, 43, 235] : [0, 184, 212, 255]),
+        stroked: true,
+        getLineColor: [0, 184, 212, 255],
+        getLineWidth: 1.5,
+        lineWidthUnits: "pixels",
+      }),
+      new TextLayer<Trajectory["nodes"][number]>({
+        id: "trajectory-labels",
+        data: tr.nodes,
+        getPosition: (d) => d.position,
+        getText: (d) => `+${d.hour}h`,
+        getSize: 12,
+        getColor: [215, 229, 240, 255],
+        getPixelOffset: [0, -15],
+        background: true,
+        getBackgroundColor: [11, 27, 43, 210],
+        backgroundPadding: [5, 2],
+        characterSet: "+0123456789h".split(""),
+        billboard: true,
+      }),
+      new ScatterplotLayer<[number, number]>({
+        id: "trajectory-origin",
+        data: [tr.origin],
+        getPosition: (d) => d,
+        getRadius: 11,
+        radiusUnits: "pixels",
+        filled: false,
+        stroked: true,
+        getLineColor: [255, 255, 255, 230],
+        getLineWidth: 2,
+        lineWidthUnits: "pixels",
       })
     );
   }
@@ -206,6 +267,7 @@ export function PlumeMap(props: PlumeMapProps) {
     const overlay = new MapboxOverlay({
       layers: [],
       onHover: (info: PickingInfo) => propsRef.current.onHover(hoverFrom(info)),
+      onClick: (info: PickingInfo) => propsRef.current.onClick(hoverFrom(info)),
       getCursor: ({ isHovering }) => (isHovering ? "pointer" : "grab"),
     });
     map.addControl(overlay as unknown as maplibregl.IControl);

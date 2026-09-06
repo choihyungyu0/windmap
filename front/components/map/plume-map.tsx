@@ -16,6 +16,7 @@ import {
   type WindArrow,
 } from "@/lib/chungbuk";
 import { smoothPath, type Trajectory } from "@/lib/trajectory";
+import type { RoadRoute } from "@/lib/road-route";
 
 /**
  * 충북 전역 확산 지도 (F-MAP-01) — MapLibre(CARTO dark-matter, 무키) 위에
@@ -51,6 +52,8 @@ export interface PlumeMapProps {
   trajectory: Trajectory | null;
   /** 선택이 바뀌면 경로 전체가 보이도록 카메라 이동 — key 가 바뀔 때만 */
   focus: { key: string; bounds: [[number, number], [number, number]] } | null;
+  /** 시각별 지점을 경유하는 도로 경로(OSRM) — 있으면 본선이 되고 바람 궤적은 참고선 */
+  roadRoute: RoadRoute | null;
   /** 레이어 updateTriggers 키 — 물질·시각·시군필터가 바뀔 때만 재계산 */
   frameKey: string;
   onHover: (h: MapHover | null) => void;
@@ -116,18 +119,43 @@ function buildLayers(p: PlumeMapProps): Layer[] {
   }
 
   // 예측 이동 경로 — 선택 굴뚝에서 시군 실측 바람을 시간별로 따라간 전진 궤적.
-  // 내비 경로처럼 어두운 외곽선 + 밝은 본선. 데이터 범위 밖(마지막 바람 유지) 구간은 옅게.
+  // 내비 경로처럼 어두운 외곽선 + 밝은 본선. 도로 경로(OSRM)가 있으면 그것이 본선이 되고
+  // 바람 궤적은 얇은 참고선으로 남는다. 데이터 범위 밖(마지막 바람 유지) 구간은 옅게.
   if (p.trajectory) {
     const tr = p.trajectory;
-    const routes = [
-      { id: "solid", path: smoothPath(tr.path.slice(0, tr.splitIndex + 1)), alpha: 255 },
-      { id: "assumed", path: smoothPath(tr.path.slice(tr.splitIndex)), alpha: 110 },
-    ].filter((r) => r.path.length > 1);
+    const road = p.roadRoute;
+    const routes = road
+      ? [{ id: "road", path: road.path, alpha: 255 }]
+      : [
+          { id: "solid", path: smoothPath(tr.path.slice(0, tr.splitIndex + 1)), alpha: 255 },
+          { id: "assumed", path: smoothPath(tr.path.slice(tr.splitIndex)), alpha: 110 },
+        ].filter((r) => r.path.length > 1);
     type Route = (typeof routes)[number];
-    const last = tr.path[tr.path.length - 1];
-    const prev = tr.path[Math.max(tr.path.length - 2, 0)];
+    type Node = Trajectory["nodes"][number];
+    // 정시 노드 — 도로 경로면 경유점이 도로에 스냅된 위치 (snapped[0] 은 출발점)
+    const nodes: Node[] = tr.nodes.map((n, k) => ({
+      ...n,
+      position: road ? (road.snapped[k + 1] ?? n.position) : n.position,
+    }));
+    const mainPath = road ? road.path : tr.path;
+    const last = mainPath[mainPath.length - 1];
+    const prev = mainPath[Math.max(mainPath.length - 2, 0)];
     const heading = bearingDeg(prev[1], prev[0], last[1], last[0]); // 도착 방위
     const hr = (heading * Math.PI) / 180;
+    if (road) {
+      out.push(
+        new PathLayer<[number, number][]>({
+          id: "trajectory-air-ref",
+          data: [smoothPath(tr.path)],
+          getPath: (d) => d,
+          getColor: [0, 184, 212, 90],
+          widthUnits: "pixels",
+          getWidth: 2,
+          capRounded: true,
+          jointRounded: true,
+        })
+      );
+    }
     out.push(
       new PathLayer<Route>({
         id: "trajectory-casing",
@@ -149,9 +177,9 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         capRounded: true,
         jointRounded: true,
       }),
-      new ScatterplotLayer<Trajectory["nodes"][number]>({
+      new ScatterplotLayer<Node>({
         id: "trajectory-nodes",
-        data: tr.nodes,
+        data: nodes,
         getPosition: (d) => d.position,
         getRadius: 5,
         radiusUnits: "pixels",
@@ -162,9 +190,9 @@ function buildLayers(p: PlumeMapProps): Layer[] {
         getLineWidth: 1.5,
         lineWidthUnits: "pixels",
       }),
-      new TextLayer<Trajectory["nodes"][number]>({
+      new TextLayer<Node>({
         id: "trajectory-labels",
-        data: tr.nodes,
+        data: nodes,
         getPosition: (d) => d.position,
         getText: (d) => `+${d.hour}h`,
         getSize: 12,

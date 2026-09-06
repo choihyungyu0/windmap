@@ -7,6 +7,7 @@ import { LogoDark } from "@/components/site/logo";
 import { MapGuide } from "@/components/map/map-guide";
 import type { MapHover } from "./plume-map";
 import { forwardTrajectory } from "@/lib/trajectory";
+import { fetchRoadRoute, type RoadRoute } from "@/lib/road-route";
 import {
   buildDispersionPoints,
   facilityMarkers,
@@ -56,6 +57,7 @@ export function ControlRoom({
     stations: true,
     wind: true,
     trajectory: true,
+    road: true,
   });
   const [hover, setHover] = useState<MapHover | null>(null);
   /** 클릭으로 고른 굴뚝 — 예측 이동 경로의 출발점 */
@@ -162,6 +164,51 @@ export function ControlRoom({
       ] as [[number, number], [number, number]],
     };
   }, [trajectory, selectedFacility]);
+
+  // 도로 경로 — 바람 궤적의 시각별 지점을 경유하는 OSRM 최단 도로(표시용).
+  // 공개 데모 서버라 요청은 1초에 한 번으로 제한하고, 늦게 온 응답은 버린다.
+  const [roadRoute, setRoadRoute] = useState<{ key: string; route: RoadRoute } | null>(null);
+  const [roadStatus, setRoadStatus] = useState<"idle" | "loading" | "error">("idle");
+  const lastRoadReq = useRef(0);
+  const roadKey =
+    trajectory && selectedFacility && layers.road ? `${selectedFacility.name}|${t}` : null;
+  useEffect(() => {
+    if (!trajectory || !roadKey) {
+      setRoadRoute(null);
+      setRoadStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const wait = Math.max(0, 1000 - (Date.now() - lastRoadReq.current));
+    setRoadStatus("loading");
+    const id = setTimeout(() => {
+      lastRoadReq.current = Date.now();
+      fetchRoadRoute(
+        [trajectory.origin, ...trajectory.nodes.map((n) => n.position)],
+        ctrl.signal
+      )
+        .then((r) => {
+          if (cancelled) return;
+          if (r) {
+            setRoadRoute({ key: roadKey, route: r });
+            setRoadStatus("idle");
+          } else {
+            setRoadRoute(null);
+            setRoadStatus("error");
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setRoadStatus("error");
+        });
+    }, wait);
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+      clearTimeout(id);
+    };
+  }, [trajectory, roadKey]);
+  const activeRoad = roadRoute && roadRoute.key === roadKey ? roadRoute.route : null;
 
   // 상위 배출 시설 (현재 시각) — 우측 패널
   const topEmitters = useMemo(
@@ -362,6 +409,7 @@ export function ControlRoom({
                   ["stations", "대기측정소"],
                   ["wind", "시군 바람"],
                   ["trajectory", "예측 이동 경로"],
+                  ["road", "도로 따라 표시"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2.5 text-sm">
@@ -414,6 +462,7 @@ export function ControlRoom({
                 frameKey={frameKey}
                 trajectory={trajectory}
                 focus={focus}
+                roadRoute={activeRoad}
                 onHover={setHover}
                 onClick={onMapClick}
                 onTileError={() => setTilesError(true)}
@@ -464,7 +513,7 @@ export function ControlRoom({
                       <span className="w-7 text-wind">+{n.hour}h</span>
                       <span className="w-[4.4rem] text-control-muted">{n.timeLabel}</span>
                       <span className="w-14 text-right text-control-text">
-                        {n.distKm.toFixed(1)} km
+                        {(activeRoad ? (activeRoad.cumKm[n.hour] ?? n.distKm) : n.distKm).toFixed(1)} km
                       </span>
                       <span className="flex-1 truncate text-right text-control-muted">
                         {n.city} {n.ws.toFixed(1)} m/s
@@ -478,7 +527,13 @@ export function ControlRoom({
                   </p>
                 )}
                 <p className="mt-1.5 text-[10px] leading-snug text-control-muted">
-                  시군 실측 바람을 시간별로 따라간 중심 이동 경로 — 확산 폭·농도가 아닙니다.
+                  {activeRoad
+                    ? "시각별 지점을 경유하는 도로 경로(OSRM · © OpenStreetMap) — 표시용이며 확산 폭·농도가 아닙니다."
+                    : layers.road && roadStatus === "loading"
+                      ? "도로 경로 불러오는 중… (바람 궤적 표시)"
+                      : layers.road && roadStatus === "error"
+                        ? "도로 경로를 불러오지 못해 바람 궤적으로 표시합니다."
+                        : "시군 실측 바람을 시간별로 따라간 중심 이동 경로 — 확산 폭·농도가 아닙니다."}
                 </p>
               </div>
             )}
@@ -545,7 +600,8 @@ export function ControlRoom({
             — 풍향·풍속·배출량 기반이며 검증된 물리 모델이 아닙니다. 색은 절대
             농도(μg/m³)가 아닌 상대 영향 강도입니다. 측정소 색은 에어코리아 실측값.
             예측 이동 경로는 시군 실측 바람을 시간별로 따라간 전진 궤적(중심선)이며
-            확산 폭·농도가 아닙니다. 배경지도 © CARTO / OpenStreetMap. 배출 영향 범위 추정이며 특정 시설을
+            확산 폭·농도가 아닙니다. "도로 따라 표시"는 시각별 지점을 경유하는
+            OSRM(OpenStreetMap) 최단 도로로 표시용이며 물리적 이동 경로가 아닙니다. 배경지도 © CARTO / OpenStreetMap. 배출 영향 범위 추정이며 특정 시설을
             오염 피해의 인과로 지목하지 않습니다.
           </p>
         </section>
